@@ -2,6 +2,9 @@ package com.redhat.hacbs.analysis.ejbhack;
 
 import javax.enterprise.inject.Alternative;
 import javax.enterprise.inject.Produces;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.PersistenceUnit;
 
 import org.commonjava.maven.galley.auth.PasswordEntry;
 import org.commonjava.maven.galley.spi.auth.PasswordManager;
