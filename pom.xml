@@ -24,11 +24,13 @@
         <surefire-plugin.version>3.0.0-M5</surefire-plugin.version>
         <formatter-maven-plugin.version>2.18.0</formatter-maven-plugin.version>
         <impsort-maven-plugin.version>1.6.2</impsort-maven-plugin.version>
+        <dependency-analyser.version>2.3.1</dependency-analyser.version>
     </properties>
 
     <modules>
         <module>sidecar</module>
         <module>cache</module>
+        <module>dependency-analyser</module>
     </modules>
 
     <dependencyManagement>
@@ -39,6 +41,11 @@
                 <version>${quarkus.platform.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.jboss.da</groupId>
+                <artifactId>reports-backend</artifactId>
+                <version>${dependency-analyser.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
