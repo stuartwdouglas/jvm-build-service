@@ -1,6 +1,6 @@
 = Deployment
 
-The `deployment` directory contains Kustomize files that can be used to deploy all the components
+The `deploy` directory contains Kustomize files that can be used to deploy all the components
 onto a Kubernetes cluster.
 
 == Requirements
@@ -14,7 +14,7 @@ After starting minikube you can run following command to deploy everything
 using the *staging* versions:
 
 ----
-kubectl apply -k deployment/overlays/staging
+kubectl apply -k deploy/overlays/staging
 ----
 
 [NOTE]
