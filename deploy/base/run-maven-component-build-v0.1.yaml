@@ -226,6 +226,8 @@ spec:
       type: string
     - name: tag
       type: string
+    - name: image
+      type: string
   workspaces:
     - name: shared-workspace
     - name: maven-settings
@@ -256,6 +258,8 @@ spec:
           value: http://localhost:2000/maven2
         - name: CONTEXT_DIR
           value: "$(params.context)"
+        - name: MAVEN_IMAGE
+          value: "$(params.image)"
         - name: GOALS
           value:
             - -DskipTests

@@ -6,6 +6,7 @@ import (
 
 const (
 	DependencyBuildStateNew          = "DependencyBuildStateNew"
+	DependencyBuildStateDetect       = "DependencyBuildStateDetect"
 	DependencyBuildStateBuilding     = "DependencyBuildStateBuilding"
 	DependencyBuildStateComplete     = "DependencyBuildStateComplete"
 	DependencyBuildStateFailed       = "DependencyBuildStateFailed"
@@ -13,7 +14,7 @@ const (
 )
 
 type DependencyBuildSpec struct {
-	ScmInfo SCMInfo `json:"scmInfo,omitempty,inline"`
+	ScmInfo SCMInfo `json:"scm,omitempty"`
 }
 
 type DependencyBuildStatus struct {
@@ -23,6 +24,15 @@ type DependencyBuildStatus struct {
 	Conditions   []metav1.Condition `json:"conditions,omitempty"`
 	State        string             `json:"state,omitempty"`
 	Contaminants []string           `json:"contaminates,omitempty"`
+	//BuildRecipe the current build recipe. If build is done then this recipe was used
+	//to get to the current state
+	CurrentBuildRecipe *BuildRecipe `json:"currentBuildRecipe,omitempty"`
+	//PotentialBuildRecipes additional recipes to try if the current recipe fails
+	PotentialBuildRecipes []*BuildRecipe `json:"potentialBuildRecipes,omitempty"`
+	//FailedBuildRecipes recipes that resulted in a failure
+	//if the current state is failed this may include the current BuildRecipe
+	FailedBuildRecipes       []*BuildRecipe `json:"failedBuildRecipes,omitempty"`
+	LastCompletedPipelineRun string         `json:"lastCompletedPipelineRun,omitempty"`
 }
 
 // +genclient
@@ -48,4 +58,10 @@ type DependencyBuildList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []DependencyBuild `json:"items"`
+}
+
+//TODO: this will require more than just an image name
+//but lets expand it as functionality is added
+type BuildRecipe struct {
+	Image string `json:"image,omitempty"`
 }

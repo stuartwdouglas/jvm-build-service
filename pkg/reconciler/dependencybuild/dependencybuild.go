@@ -32,6 +32,7 @@ const (
 	PipelineScmUrl   = "url"
 	PipelineScmTag   = "tag"
 	PipelinePath     = "context"
+	PipelineImage    = "image"
 )
 
 type ReconcileDependencyBuild struct {
@@ -76,13 +77,15 @@ func (r *ReconcileDependencyBuild) Reconcile(ctx context.Context, request reconc
 
 	switch db.Status.State {
 	case "", v1alpha1.DependencyBuildStateNew:
-		return r.handleStateNew(ctx, db)
+		return r.handleStateNew(ctx, &db)
+	case v1alpha1.DependencyBuildStateDetect:
+		return r.handleStateDetect(ctx, &db)
 	case v1alpha1.DependencyBuildStateComplete, v1alpha1.DependencyBuildStateFailed:
 		return reconcile.Result{}, nil
 	case v1alpha1.DependencyBuildStateBuilding:
-		return r.handleStateBuilding(ctx, depId, db)
+		return r.handleStateBuilding(ctx, depId, &db)
 	case v1alpha1.DependencyBuildStateContaminated:
-		return r.handleStateContaminated(ctx, db)
+		return r.handleStateContaminated(ctx, &db)
 	}
 
 	return reconcile.Result{}, nil
@@ -94,11 +97,39 @@ func hashToString(unique string) string {
 	return depId
 }
 
-func (r *ReconcileDependencyBuild) handleStateNew(ctx context.Context, db v1alpha1.DependencyBuild) (reconcile.Result, error) {
+func (r *ReconcileDependencyBuild) handleStateNew(ctx context.Context, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
+	//TODO: this is currently a huge hard coded hack
+	//we hard code 3 potential build recipes (images)
+	//then move the state to DependencyBuildStateDetect
+	//once this is not longer a hard coded stub it should trigger a TR/PR
+	//that looks at the repository and figures out which builder to use
+	db.Status.PotentialBuildRecipes = []*v1alpha1.BuildRecipe{{Image: "quay.io/sdouglas/hacbs-jdk11-builder:latest"},
+		{Image: "quay.io/sdouglas/hacbs-jdk8-builder:latest"},
+		{Image: "quay.io/sdouglas/hacbs-jdk17-builder:latest"}}
+	db.Status.State = v1alpha1.DependencyBuildStateDetect
+	return reconcile.Result{}, r.client.Status().Update(ctx, db)
+}
+
+func (r *ReconcileDependencyBuild) handleStateDetect(ctx context.Context, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
+	//TODO: read results of detect task
+
+	return r.attemptNewRecipe(ctx, db)
+}
+
+func (r *ReconcileDependencyBuild) attemptNewRecipe(ctx context.Context, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
 	//new build, kick off a pipeline run to run the build
-	//TODO: this state flow will change when we start analysing the required images etc
-	//for now just to a super basic build and change the state to building
-	// create task run
+	if db.Status.CurrentBuildRecipe != nil {
+		db.Status.FailedBuildRecipes = append(db.Status.FailedBuildRecipes, db.Status.CurrentBuildRecipe)
+	}
+	if len(db.Status.PotentialBuildRecipes) == 0 {
+		db.Status.State = v1alpha1.DependencyBuildStateFailed
+		return reconcile.Result{}, r.client.Status().Update(ctx, db)
+	}
+	//pick the first recipe in the potential list
+	db.Status.CurrentBuildRecipe = db.Status.PotentialBuildRecipes[0]
+	//and remove if from the potential list
+	db.Status.PotentialBuildRecipes = db.Status.PotentialBuildRecipes[1:]
+
 	tr := pipelinev1beta1.PipelineRun{}
 	tr.Namespace = db.Namespace
 	tr.GenerateName = db.Name + "-build-"
@@ -108,6 +139,7 @@ func (r *ReconcileDependencyBuild) handleStateNew(ctx context.Context, db v1alph
 		{Name: PipelineScmUrl, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Spec.ScmInfo.SCMURL}},
 		{Name: PipelineScmTag, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Spec.ScmInfo.Tag}},
 		{Name: PipelinePath, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Spec.ScmInfo.Path}},
+		{Name: PipelineImage, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Status.CurrentBuildRecipe.Image}},
 	}
 	quantity, err := resource.ParseQuantity("1Gi")
 	if err != nil {
@@ -119,18 +151,17 @@ func (r *ReconcileDependencyBuild) handleStateNew(ctx context.Context, db v1alph
 			AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
 			Resources:   v1.ResourceRequirements{Requests: map[v1.ResourceName]resource.Quantity{v1.ResourceStorage: quantity}}}}},
 	}
-	if err := controllerutil.SetOwnerReference(&db, &tr, r.scheme); err != nil {
-		return reconcile.Result{}, err
-	}
-	err = r.client.Create(ctx, &tr)
-	if err != nil {
+	if err := controllerutil.SetOwnerReference(db, &tr, r.scheme); err != nil {
 		return reconcile.Result{}, err
 	}
 	db.Status.State = v1alpha1.DependencyBuildStateBuilding
-	return reconcile.Result{}, r.client.Status().Update(ctx, &db)
+	if err = r.client.Status().Update(ctx, db); err != nil {
+		return reconcile.Result{}, err
+	}
+	return reconcile.Result{}, r.client.Create(ctx, &tr)
 }
 
-func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, depId string, db v1alpha1.DependencyBuild) (reconcile.Result, error) {
+func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, depId string, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
 	//make sure we still have a linked pr
 	list := &pipelinev1beta1.PipelineRunList{}
 	lbls := map[string]string{
@@ -147,52 +178,65 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, depI
 		//no linked pr, back to new
 		r.eventRecorder.Eventf(&db, v1.EventTypeWarning, "NoPipelineRun", "The DependencyBuild %s/%s did not have any PipelineRuns", db.Namespace, db.Name)
 		db.Status.State = v1alpha1.DependencyBuildStateNew
-		return reconcile.Result{}, r.client.Update(ctx, &db)
+		return reconcile.Result{}, r.client.Update(ctx, db)
 	}
-	for _, pr := range list.Items {
+	var pr *pipelinev1beta1.PipelineRun
+	//look for the most recent one, there could be multiple builds if earlier recipes failed
+	for _, current := range list.Items {
+		if pr == nil || pr.CreationTimestamp.Before(&current.CreationTimestamp) {
+			pr = &current
+		}
+	}
+	if pr.Name == db.Status.LastCompletedPipelineRun {
+		//we have already seen this result
+		return reconcile.Result{}, nil
+	}
 
-		//if there is no label then ignore it
-		if pr.Status.CompletionTime != nil {
-			//the pr is done, lets potentially update the dependency build
-			//we just set the state here, the ABR logic is in the ABR controller
-			//this keeps as much of the logic in one place as possible
+	//if there is no label then ignore it
+	if pr.Status.CompletionTime != nil {
+		db.Status.LastCompletedPipelineRun = pr.Name
+		//the pr is done, lets potentially update the dependency build
+		//we just set the state here, the ABR logic is in the ABR controller
+		//this keeps as much of the logic in one place as possible
 
-			var contaminates []string
-			for _, r := range pr.Status.PipelineResults {
-				if r.Name == "contaminants" && len(r.Value) > 0 {
-					contaminates = strings.Split(r.Value, ",")
-				}
+		var contaminates []string
+		for _, r := range pr.Status.PipelineResults {
+			if r.Name == "contaminants" && len(r.Value) > 0 {
+				contaminates = strings.Split(r.Value, ",")
 			}
-			success := pr.Status.GetCondition(apis.ConditionSucceeded).IsTrue()
-			if success {
-				if len(contaminates) == 0 {
-					db.Status.State = v1alpha1.DependencyBuildStateComplete
-				} else {
-					//the dependency was contaminated with community deps
-					//most likely shaded in
-					db.Status.State = v1alpha1.DependencyBuildStateContaminated
-					db.Status.Contaminants = contaminates
-				}
+		}
+		success := pr.Status.GetCondition(apis.ConditionSucceeded).IsTrue()
+		if success {
+			if len(contaminates) == 0 {
+				db.Status.State = v1alpha1.DependencyBuildStateComplete
 			} else {
-				db.Status.State = v1alpha1.DependencyBuildStateFailed
+				//the dependency was contaminated with community deps
+				//most likely shaded in
+				db.Status.State = v1alpha1.DependencyBuildStateContaminated
+				db.Status.Contaminants = contaminates
 			}
-			err := r.client.Status().Update(ctx, &db)
-			if err != nil {
-				return reconcile.Result{}, err
+		} else {
+			if len(db.Status.PotentialBuildRecipes) > 0 {
+				//we failed this time, attempt a new build recipe
+				return r.attemptNewRecipe(ctx, db)
 			}
-
+			db.Status.State = v1alpha1.DependencyBuildStateFailed
+		}
+		err := r.client.Status().Update(ctx, db)
+		if err != nil {
+			return reconcile.Result{}, err
 		}
 	}
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileDependencyBuild) handleStateContaminated(ctx context.Context, db v1alpha1.DependencyBuild) (reconcile.Result, error) {
+func (r *ReconcileDependencyBuild) handleStateContaminated(ctx context.Context, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
 	contaminants := db.Status.Contaminants
 	if len(contaminants) == 0 {
 		//all fixed, just set the state back to new and try again
 		//this is triggered when contaminants are removed by the ABR controller
 		db.Status.State = v1alpha1.DependencyBuildStateNew
-		return reconcile.Result{}, r.client.Update(ctx, &db)
+		return reconcile.Result{}, r.client.Update(ctx, db)
 	}
 	//we want to rebuild the contaminants from source
 	//so we create ABRs for them
