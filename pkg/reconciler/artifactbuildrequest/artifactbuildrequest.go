@@ -139,21 +139,21 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 	for _, res := range tr.Status.TaskRunResults {
 		switch res.Name {
 		case TaskResultScmUrl:
-			abr.Status.SCMURL = res.Value
+			abr.Status.ScmInfo.SCMURL = res.Value
 		case TaskResultScmTag:
-			abr.Status.Tag = res.Value
+			abr.Status.ScmInfo.Tag = res.Value
 		case TaskResultScmType:
-			abr.Status.SCMType = res.Value
+			abr.Status.ScmInfo.SCMType = res.Value
 		case TaskResultMessage:
 			abr.Status.Message = res.Value
 		case TaskResultContextPath:
-			abr.Status.Path = res.Value
+			abr.Status.ScmInfo.Path = res.Value
 		}
 	}
 
 	//now let's create the dependency build object
 	//once this object has been created its resolver takes over
-	if abr.Status.Tag == "" {
+	if abr.Status.ScmInfo.Tag == "" {
 		//this is a failure
 		r.eventRecorder.Eventf(abr, corev1.EventTypeWarning, "MissingTag", "The ArtifactBuildRequest %s/%s had an empty tag field", abr.Namespace, abr.Name)
 		abr.Status.State = v1alpha1.ArtifactBuildRequestStateMissing
@@ -161,7 +161,7 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 	}
 	//we generate a hash of the url, tag and path for
 	//our unique identifier
-	hash := md5.Sum([]byte(abr.Status.SCMURL + abr.Status.Tag + abr.Status.Path))
+	hash := md5.Sum([]byte(abr.Status.ScmInfo.SCMURL + abr.Status.ScmInfo.Tag + abr.Status.ScmInfo.Path))
 	depId := hex.EncodeToString(hash[:])
 	//now lets look for an existing build object
 	list := &v1alpha1.DependencyBuildList{}
@@ -187,12 +187,12 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 		//TODO: name should be based on the git repo, not the abr, but needs
 		//a sanitization algorithm
 		db.GenerateName = abr.Name + "-"
-		db.Spec = v1alpha1.DependencyBuildSpec{
-			SCMURL:  abr.Status.SCMURL,
-			SCMType: abr.Status.SCMType,
-			Tag:     abr.Status.Tag,
-			Path:    abr.Status.Path,
-		}
+		db.Spec = v1alpha1.DependencyBuildSpec{ScmInfo: v1alpha1.SCMInfo{
+			SCMURL:  abr.Status.ScmInfo.SCMURL,
+			SCMType: abr.Status.ScmInfo.SCMType,
+			Tag:     abr.Status.ScmInfo.Tag,
+			Path:    abr.Status.ScmInfo.Path,
+		}}
 		if err := controllerutil.SetOwnerReference(abr, db, r.scheme); err != nil {
 			return reconcile.Result{}, err
 		}
