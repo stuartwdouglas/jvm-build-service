@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"knative.dev/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	log2 "sigs.k8s.io/controller-runtime/pkg/log"
 	"strings"
 	"time"
 
@@ -27,12 +28,13 @@ import (
 
 const (
 	//TODO eventually we'll need to decide if we want to make this tuneable
-	contextTimeout   = 300 * time.Second
-	PipelineRunLabel = "jvmbuildservice.io/dependencybuild-pipelinerun"
-	PipelineScmUrl   = "url"
-	PipelineScmTag   = "tag"
-	PipelinePath     = "context"
-	PipelineImage    = "image"
+	contextTimeout     = 300 * time.Second
+	PipelineRunLabel   = "jvmbuildservice.io/dependencybuild-pipelinerun"
+	PipelineScmUrl     = "url"
+	PipelineScmTag     = "tag"
+	PipelinePath       = "context"
+	PipelineImage      = "image"
+	PipelineRunMissing = "PipelineRunMissing"
 )
 
 type ReconcileDependencyBuild struct {
@@ -74,12 +76,15 @@ func (r *ReconcileDependencyBuild) Reconcile(ctx context.Context, request reconc
 		db.Status.State = v1alpha1.DependencyBuildStateNew
 		return reconcile.Result{}, r.client.Update(ctx, &db)
 	}
+	log2.Log.Info("Reconcile", "db", db.Name, "state", db.Status.State)
 
 	switch db.Status.State {
 	case "", v1alpha1.DependencyBuildStateNew:
 		return r.handleStateNew(ctx, &db)
 	case v1alpha1.DependencyBuildStateDetect:
 		return r.handleStateDetect(ctx, &db)
+	case v1alpha1.DependencyBuildStateSubmitBuild:
+		return r.handleStateSubmitBuild(ctx, &db)
 	case v1alpha1.DependencyBuildStateComplete, v1alpha1.DependencyBuildStateFailed:
 		return reconcile.Result{}, nil
 	case v1alpha1.DependencyBuildStateBuilding:
@@ -112,24 +117,35 @@ func (r *ReconcileDependencyBuild) handleStateNew(ctx context.Context, db *v1alp
 
 func (r *ReconcileDependencyBuild) handleStateDetect(ctx context.Context, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
 	//TODO: read results of detect task
-
-	return r.attemptNewRecipe(ctx, db)
+	//this is basically a placeholder for now
+	//but this is where the PotentialBuildRecipes should be filled out
+	db.Status.State = v1alpha1.DependencyBuildStateSubmitBuild
+	return reconcile.Result{}, r.client.Status().Update(ctx, db)
 }
-
-func (r *ReconcileDependencyBuild) attemptNewRecipe(ctx context.Context, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
+func (r *ReconcileDependencyBuild) handleStateSubmitBuild(ctx context.Context, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
+	//the current recipe has been built, we need to pick a new one
+	//pick the first recipe in the potential list
 	//new build, kick off a pipeline run to run the build
+	//first we update the recipes, but add a flag that this is not submitted yet
 	if db.Status.CurrentBuildRecipe != nil {
 		db.Status.FailedBuildRecipes = append(db.Status.FailedBuildRecipes, db.Status.CurrentBuildRecipe)
 	}
+	//no more attempts
 	if len(db.Status.PotentialBuildRecipes) == 0 {
 		db.Status.State = v1alpha1.DependencyBuildStateFailed
+		r.eventRecorder.Eventf(db, v1.EventTypeWarning, "BuildFailed", "The DependencyBuild %s/%s moved to failed, all recipes exhausted", db.Namespace, db.Name)
 		return reconcile.Result{}, r.client.Status().Update(ctx, db)
 	}
-	//pick the first recipe in the potential list
 	db.Status.CurrentBuildRecipe = db.Status.PotentialBuildRecipes[0]
 	//and remove if from the potential list
 	db.Status.PotentialBuildRecipes = db.Status.PotentialBuildRecipes[1:]
+	db.Status.State = v1alpha1.DependencyBuildStateBuilding
+	//update the recipes
+	if err := r.client.Status().Update(ctx, db); err != nil {
+		return reconcile.Result{}, err
+	}
 
+	//now submit the pipeline
 	tr := pipelinev1beta1.PipelineRun{}
 	tr.Namespace = db.Namespace
 	tr.GenerateName = db.Name + "-build-"
@@ -154,11 +170,16 @@ func (r *ReconcileDependencyBuild) attemptNewRecipe(ctx context.Context, db *v1a
 	if err := controllerutil.SetOwnerReference(db, &tr, r.scheme); err != nil {
 		return reconcile.Result{}, err
 	}
-	db.Status.State = v1alpha1.DependencyBuildStateBuilding
-	if err = r.client.Status().Update(ctx, db); err != nil {
+	//now we submit the build
+	if err := r.client.Create(ctx, &tr); err != nil {
+		r.eventRecorder.Eventf(db, v1.EventTypeWarning, "PipelineRunCreationFailed", "The DependencyBuild %s/%s failed to create its build pipeline run", db.Namespace, db.Name)
 		return reconcile.Result{}, err
 	}
-	return reconcile.Result{}, r.client.Create(ctx, &tr)
+	//get the db and update the new status
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: db.Namespace, Name: db.Name}, db); err != nil {
+		return reconcile.Result{}, err
+	}
+	return reconcile.Result{}, err
 }
 
 func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, depId string, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
@@ -175,10 +196,25 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, depI
 		return reconcile.Result{}, err
 	}
 	if len(list.Items) == 0 {
-		//no linked pr, back to new
-		r.eventRecorder.Eventf(&db, v1.EventTypeWarning, "NoPipelineRun", "The DependencyBuild %s/%s did not have any PipelineRuns", db.Namespace, db.Name)
-		db.Status.State = v1alpha1.DependencyBuildStateNew
-		return reconcile.Result{}, r.client.Update(ctx, db)
+		//no linked pr, lets try and submit the build again
+		//this should not really happen, mostly likely the next transition
+		//will be to failed
+		r.eventRecorder.Eventf(db, v1.EventTypeWarning, "NoPipelineRun", "The DependencyBuild %s/%s did not have any PipelineRuns", db.Namespace, db.Name)
+		if db.Annotations == nil {
+			db.Annotations = map[string]string{}
+		}
+		if db.Annotations[PipelineRunMissing] == "" {
+			//just wait an hope the PR appears?
+			//I really don't understand this
+			//do we need a non-caching client?
+			db.Annotations[PipelineRunMissing] = "true"
+			r.eventRecorder.Eventf(db, v1.EventTypeNormal, "NoPipelineRun", "The DependencyBuild %s/%s will be retried after 1m", db.Namespace, db.Name)
+			return reconcile.Result{RequeueAfter: time.Minute}, nil
+		} else {
+			delete(db.Annotations, PipelineRunMissing)
+			db.Status.State = v1alpha1.DependencyBuildStateSubmitBuild
+			return reconcile.Result{}, r.client.Status().Update(ctx, db)
+		}
 	}
 	var pr *pipelinev1beta1.PipelineRun
 	//look for the most recent one, there could be multiple builds if earlier recipes failed
@@ -187,14 +223,12 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, depI
 			pr = &current
 		}
 	}
-	if pr.Name == db.Status.LastCompletedPipelineRun {
-		//we have already seen this result
-		return reconcile.Result{}, nil
-	}
-
-	//if there is no label then ignore it
 	if pr.Status.CompletionTime != nil {
-		db.Status.LastCompletedPipelineRun = pr.Name
+		if pr.Name == db.Status.LastCompletedBuildPipelineRun {
+			//already handled
+			return reconcile.Result{}, nil
+		}
+		db.Status.LastCompletedBuildPipelineRun = pr.Name
 		//the pr is done, lets potentially update the dependency build
 		//we just set the state here, the ABR logic is in the ABR controller
 		//this keeps as much of the logic in one place as possible
@@ -210,22 +244,17 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, depI
 			if len(contaminates) == 0 {
 				db.Status.State = v1alpha1.DependencyBuildStateComplete
 			} else {
+				r.eventRecorder.Eventf(db, v1.EventTypeWarning, "BuildContaminated", "The DependencyBuild %s/%s was contaminated with community dependencies", db.Namespace, db.Name)
 				//the dependency was contaminated with community deps
 				//most likely shaded in
 				db.Status.State = v1alpha1.DependencyBuildStateContaminated
 				db.Status.Contaminants = contaminates
 			}
 		} else {
-			if len(db.Status.PotentialBuildRecipes) > 0 {
-				//we failed this time, attempt a new build recipe
-				return r.attemptNewRecipe(ctx, db)
-			}
-			db.Status.State = v1alpha1.DependencyBuildStateFailed
+			//try again, if there are no more recipes this gets handled in the submit build logic
+			db.Status.State = v1alpha1.DependencyBuildStateSubmitBuild
 		}
-		err := r.client.Status().Update(ctx, db)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
+		return reconcile.Result{}, r.client.Status().Update(ctx, db)
 	}
 	return reconcile.Result{}, nil
 }

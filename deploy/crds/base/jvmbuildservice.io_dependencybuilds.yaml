@@ -56,6 +56,8 @@ spec:
             type: object
           status:
             properties:
+              buildSubmitted:
+                type: boolean
               conditions:
                 description: 'Conditions for capturing generic status NOTE: inspecting
                   the fabric8 Status class, it looked analogous to k8s Condition,
@@ -151,7 +153,7 @@ spec:
                       type: string
                   type: object
                 type: array
-              lastCompletedPipelineRun:
+              lastCompletedBuildPipelineRun:
                 type: string
               potentialBuildRecipes:
                 description: PotentialBuildRecipes additional recipes to try if the

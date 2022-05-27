@@ -15,7 +15,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	log2 "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strings"
 	"time"
@@ -38,6 +37,7 @@ const (
 	TaskResultScmType             = "scm-type"
 	TaskResultContextPath         = "context"
 	TaskResultMessage             = "message"
+	TaskRunMissing                = "TaskRunMissing"
 )
 
 type ReconcileArtifactBuildRequest struct {
@@ -58,7 +58,6 @@ func (r *ReconcileArtifactBuildRequest) Reconcile(ctx context.Context, request r
 	// Set the ctx to be Background, as the top-level context for incoming requests.
 	ctx, cancel := context.WithTimeout(ctx, contextTimeout)
 	defer cancel()
-	//log := log.FromContext(ctx)
 	abr := v1alpha1.ArtifactBuildRequest{}
 	err := r.client.Get(ctx, request.NamespacedName, &abr)
 	if err != nil {
@@ -67,8 +66,6 @@ func (r *ReconcileArtifactBuildRequest) Reconcile(ctx context.Context, request r
 		}
 		return ctrl.Result{}, err
 	}
-	log2.FromContext(ctx).Info("Reconcile: ", "abr", request.Name, "state", abr.Status.State)
-
 	switch abr.Status.State {
 	case v1alpha1.ArtifactBuildRequestStateNew, "":
 		return r.handleStateNew(ctx, &abr)
@@ -105,12 +102,10 @@ func (r *ReconcileArtifactBuildRequest) handleStateNew(ctx context.Context, abr 
 }
 
 func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Context, abr *v1alpha1.ArtifactBuildRequest) (reconcile.Result, error) {
-	log := log2.Log
-	log.Info("Discovering: ", "abr", abr.Name)
 	//lets look up our discovery task
 	listOpts := &client.ListOptions{
 		Namespace:     abr.Namespace,
-		LabelSelector: labels.SelectorFromSet(map[string]string{ArtifactBuildRequestIdLabel: hashString(abr.Spec.GAV), TaskRunLabel: ""}),
+		LabelSelector: labels.SelectorFromSet(map[string]string{ArtifactBuildRequestIdLabel: hashString(abr.Spec.GAV)}),
 	}
 	trl := pipelinev1beta1.TaskRunList{}
 	err := r.client.List(ctx, &trl, listOpts)
@@ -127,16 +122,26 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 	if tr == nil {
 		r.eventRecorder.Eventf(abr, corev1.EventTypeWarning, "NoTaskRun", "The ArtifactBuildRequest %s/%s did not have an associated TaskRun", abr.Namespace, abr.Name)
 		//no pipeline, very odd
-		return reconcile.Result{}, nil
+		if abr.Annotations == nil {
+			abr.Annotations = map[string]string{}
+		}
+		if abr.Annotations[TaskRunMissing] == "" {
+			//just wait and hope the TR appears
+			abr.Annotations[TaskRunMissing] = "true"
+			r.eventRecorder.Eventf(abr, corev1.EventTypeNormal, "NoTaskRun", "The ArtifactBuildRequest %s/%s will be retried after 1m", abr.Namespace, abr.Name)
+			return reconcile.Result{RequeueAfter: time.Minute}, nil
+		} else {
+			delete(abr.Annotations, TaskRunMissing)
+			abr.Status.State = v1alpha1.ArtifactBuildRequestStateNew
+			return reconcile.Result{}, r.client.Status().Update(ctx, abr)
+		}
 	}
 	if tr.Status.CompletionTime == nil {
 		return reconcile.Result{}, nil
 	}
 	if tr.Status.CompletionTime == nil {
-		log.Info("TR not done yet ", "abr", abr.Name)
 		return reconcile.Result{}, nil
 	}
-	log.Info("Completed TR, proceeding with discovered: ", "abr", abr.Name)
 
 	//we grab the results here and put them on the ABR
 	for _, res := range tr.Status.TaskRunResults {
@@ -244,7 +249,6 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 func hashString(hashInput string) string {
 	hash := md5.Sum([]byte(hashInput))
 	depId := hex.EncodeToString(hash[:])
-	log2.Log.Info("hashing " + hashInput + " to " + depId)
 	return depId
 }
 
@@ -292,7 +296,7 @@ func (r *ReconcileArtifactBuildRequest) handleStateBuilding(ctx context.Context,
 	if len(list.Items) == 0 {
 		//we don't have a build for this ABR, this is very odd
 		//move back to new and start again
-		log2.Log.Info("Unable to find an existing dependency build", "abr", abr.Name, "id", depId)
+		r.eventRecorder.Eventf(abr, corev1.EventTypeWarning, "MissingDependencyBuild", "The ArtifactBuildRequest %s/%s in state Building was missing a DependencyBuild", abr.Namespace, abr.Name)
 		abr.Status.State = v1alpha1.ArtifactBuildRequestStateNew
 		return reconcile.Result{}, r.client.Status().Update(ctx, abr)
 	}
@@ -305,20 +309,20 @@ func (r *ReconcileArtifactBuildRequest) handleStateBuilding(ctx context.Context,
 		if recent == nil || recent.CreationTimestamp.Before(&db.CreationTimestamp) {
 			recent = &db
 		}
-		found := false
-		for _, owner := range db.OwnerReferences {
-			if owner.UID == abr.UID {
-				found = true
-				break
-			}
+	}
+	found := false
+	for _, owner := range recent.OwnerReferences {
+		if owner.UID == abr.UID {
+			found = true
+			break
 		}
-		if !found {
-			if err := controllerutil.SetOwnerReference(abr, &db, r.scheme); err != nil {
-				return reconcile.Result{}, err
-			}
-			if err := r.client.Update(ctx, &db); err != nil {
-				return reconcile.Result{}, err
-			}
+	}
+	if !found {
+		if err := controllerutil.SetOwnerReference(abr, recent, r.scheme); err != nil {
+			return reconcile.Result{}, err
+		}
+		if err := r.client.Update(ctx, recent); err != nil {
+			return reconcile.Result{}, err
 		}
 	}
 	//if the build is done update our state accordingly

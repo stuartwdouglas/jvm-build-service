@@ -7,6 +7,7 @@ import (
 const (
 	DependencyBuildStateNew          = "DependencyBuildStateNew"
 	DependencyBuildStateDetect       = "DependencyBuildStateDetect"
+	DependencyBuildStateSubmitBuild  = "DependencyBuildStateSubmitBuild"
 	DependencyBuildStateBuilding     = "DependencyBuildStateBuilding"
 	DependencyBuildStateComplete     = "DependencyBuildStateComplete"
 	DependencyBuildStateFailed       = "DependencyBuildStateFailed"
@@ -31,8 +32,8 @@ type DependencyBuildStatus struct {
 	PotentialBuildRecipes []*BuildRecipe `json:"potentialBuildRecipes,omitempty"`
 	//FailedBuildRecipes recipes that resulted in a failure
 	//if the current state is failed this may include the current BuildRecipe
-	FailedBuildRecipes       []*BuildRecipe `json:"failedBuildRecipes,omitempty"`
-	LastCompletedPipelineRun string         `json:"lastCompletedPipelineRun,omitempty"`
+	FailedBuildRecipes            []*BuildRecipe `json:"failedBuildRecipes,omitempty"`
+	LastCompletedBuildPipelineRun string         `json:"lastCompletedBuildPipelineRun,omitempty"`
 }
 
 // +genclient

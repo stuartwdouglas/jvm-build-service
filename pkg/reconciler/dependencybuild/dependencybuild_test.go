@@ -74,6 +74,8 @@ func TestStateDetect(t *testing.T) {
 		g.Expect(reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: db.Namespace, Name: db.Name}}))
 		g.Expect(getBuild(client, g).Status.State).Should(Equal(v1alpha1.DependencyBuildStateDetect))
 		g.Expect(reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: db.Namespace, Name: db.Name}}))
+		g.Expect(getBuild(client, g).Status.State).Should(Equal(v1alpha1.DependencyBuildStateSubmitBuild))
+		g.Expect(reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: db.Namespace, Name: db.Name}}))
 
 		g.Expect(client.Get(ctx, types.NamespacedName{
 			Namespace: metav1.NamespaceDefault,
@@ -181,6 +183,8 @@ func TestStateBuilding(t *testing.T) {
 			LastTransitionTime: apis.VolatileTime{Inner: metav1.Time{Time: time.Now()}},
 		})
 		g.Expect(client.Update(ctx, pr))
+		g.Expect(reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: buildName}))
+		g.Expect(getBuild(client, g).Status.State).Should(Equal(v1alpha1.DependencyBuildStateSubmitBuild))
 		g.Expect(reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: buildName}))
 		db := getBuild(client, g)
 		g.Expect(db.Status.State).Should(Equal(v1alpha1.DependencyBuildStateFailed))
