@@ -17,7 +17,7 @@ spec:
     - name: path-context
       value: java-components
     - name: dockerfile
-      value: sidecar/src/main/docker/Dockerfile.all-in-one
+      value: sidecar/src/main/docker/Dockerfile
     - name: infra-deployment-update-script
       value: >
         sed -i 

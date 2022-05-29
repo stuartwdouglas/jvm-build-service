@@ -46,12 +46,27 @@ generate: generate-crds generate-deepcopy-client
 verify-generate-deepcopy-client: generate-deepcopy-client
 	hack/verify-codegen.sh
 
-dev-image:
+dev-image-cache:
+	docker build java-components -f java-components/cache/src/main/docker/Dockerfile -t quay.io/$(QUAY_USERNAME)/hacbs-jvm-cache:dev
+	docker push quay.io/$(QUAY_USERNAME)/hacbs-jvm-cache:dev
+
+dev-image-sidecar:
+	docker build java-components -f java-components/sidecar/src/main/docker/ -t quay.io/$(QUAY_USERNAME)/hacbs-jvm-sidecar:dev
+	docker push quay.io/$(QUAY_USERNAME)/hacbs-jvm-sidecar:dev
+
+dev-image-build-request-processor:
+	docker build java-components -f java-components/build-request-processor/src/main/docker/Dockerfile -t quay.io/$(QUAY_USERNAME)/hacbs-jvm-build-request-processor:dev
+	docker push quay.io/$(QUAY_USERNAME)/hacbs-jvm-build-request-processor:dev
+
+dev-image-dependency-analyser:
+	docker build java-components -f java-components/dependency-analyser/src/main/docker/Dockerfile -t quay.io/$(QUAY_USERNAME)/hacbs-jvm-dependency-analyser:dev
+	docker push quay.io/$(QUAY_USERNAME)/hacbs-jvm-dependency-analyser:dev
+
+dev-image-controller:
 	docker build . -t quay.io/$(QUAY_USERNAME)/hacbs-jvm-controller:dev
 	docker push quay.io/$(QUAY_USERNAME)/hacbs-jvm-controller:dev
 
-dev: dev-image
-	cd java-components && mvn clean install -Dlocal
+dev: dev-image-controller dev-image-cache dev-image-build-request-processor dev-image-dependency-analyser dev-image-sidecar
 	./deploy/development.sh
 
 ENVTEST = $(shell pwd)/bin/setup-envtest

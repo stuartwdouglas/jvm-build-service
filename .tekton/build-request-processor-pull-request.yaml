@@ -1,7 +1,7 @@
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
-  name: jvm-build-sidecar-on-pull-request
+  name: jvm-build-build-request-processor-on-pull-request
   annotations:
     pipelinesascode.tekton.dev/on-event: "[pull_request]"
     pipelinesascode.tekton.dev/on-target-branch: "[main]"
@@ -13,11 +13,11 @@ spec:
     - name: revision
       value: "{{revision}}"
     - name: output-image
-      value: "quay.io/redhat-appstudio/pull-request-builds:jvmsidecar-{{revision}}"
+      value: "quay.io/redhat-appstudio/pull-request-builds:jvmbuild-request-processor-{{revision}}"
     - name: path-context
       value: java-components
     - name: dockerfile
-      value: sidecar/src/main/docker/Dockerfile
+      value: build-request-processor/src/main/docker/Dockerfile
   pipelineRef:
     name: docker-build
     bundle: quay.io/redhat-appstudio/hacbs-core-service-templates-bundle:latest
@@ -25,4 +25,4 @@ spec:
     - name: workspace
       persistentVolumeClaim:
         claimName: app-studio-default-workspace
-      subPath: jvm-sidecar-check-{{ revision }}
+      subPath: jvm-build-request-processor-check-{{ revision }}
