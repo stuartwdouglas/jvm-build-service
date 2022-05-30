@@ -13,7 +13,7 @@ type ArtifactBuildRequestStatus struct {
 	//TODO: conditions?
 	State   string  `json:"state,omitempty"`
 	Message string  `json:"message,omitempty"`
-	ScmInfo SCMInfo `json:"scm,omitempty"`
+	SCMInfo SCMInfo `json:"scm,omitempty"`
 }
 
 //type ArtifactBuildRequestState string

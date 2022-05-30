@@ -138,21 +138,21 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 	for _, res := range tr.Status.TaskRunResults {
 		switch res.Name {
 		case TaskResultScmUrl:
-			abr.Status.ScmInfo.SCMURL = res.Value
+			abr.Status.SCMInfo.SCMURL = res.Value
 		case TaskResultScmTag:
-			abr.Status.ScmInfo.Tag = res.Value
+			abr.Status.SCMInfo.Tag = res.Value
 		case TaskResultScmType:
-			abr.Status.ScmInfo.SCMType = res.Value
+			abr.Status.SCMInfo.SCMType = res.Value
 		case TaskResultMessage:
 			abr.Status.Message = res.Value
 		case TaskResultContextPath:
-			abr.Status.ScmInfo.Path = res.Value
+			abr.Status.SCMInfo.Path = res.Value
 		}
 	}
 
 	//now let's create the dependency build object
 	//once this object has been created its resolver takes over
-	if abr.Status.ScmInfo.Tag == "" {
+	if abr.Status.SCMInfo.Tag == "" {
 		//this is a failure
 		r.eventRecorder.Eventf(abr, corev1.EventTypeWarning, "MissingTag", "The ArtifactBuildRequest %s/%s had an empty tag field", abr.Namespace, abr.Name)
 		abr.Status.State = v1alpha1.ArtifactBuildRequestStateMissing
@@ -160,7 +160,7 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 	}
 	//we generate a hash of the url, tag and path for
 	//our unique identifier
-	depId := hashString(abr.Status.ScmInfo.SCMURL + abr.Status.ScmInfo.Tag + abr.Status.ScmInfo.Path)
+	depId := hashString(abr.Status.SCMInfo.SCMURL + abr.Status.SCMInfo.Tag + abr.Status.SCMInfo.Path)
 	//now lets look for an existing build object
 	list := &v1alpha1.DependencyBuildList{}
 	lbls := map[string]string{
@@ -189,10 +189,10 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 			return reconcile.Result{}, err
 		}
 		db.Spec = v1alpha1.DependencyBuildSpec{ScmInfo: v1alpha1.SCMInfo{
-			SCMURL:  abr.Status.ScmInfo.SCMURL,
-			SCMType: abr.Status.ScmInfo.SCMType,
-			Tag:     abr.Status.ScmInfo.Tag,
-			Path:    abr.Status.ScmInfo.Path,
+			SCMURL:  abr.Status.SCMInfo.SCMURL,
+			SCMType: abr.Status.SCMInfo.SCMType,
+			Tag:     abr.Status.SCMInfo.Tag,
+			Path:    abr.Status.SCMInfo.Path,
 		}}
 		if err := r.client.Status().Update(ctx, abr); err != nil {
 			return reconcile.Result{}, err
@@ -271,7 +271,7 @@ func (r *ReconcileArtifactBuildRequest) handleStateComplete(ctx context.Context,
 }
 
 func (r *ReconcileArtifactBuildRequest) handleStateBuilding(ctx context.Context, abr *v1alpha1.ArtifactBuildRequest) (reconcile.Result, error) {
-	depId := hashString(abr.Status.ScmInfo.SCMURL + abr.Status.ScmInfo.Tag + abr.Status.ScmInfo.Path)
+	depId := hashString(abr.Status.SCMInfo.SCMURL + abr.Status.SCMInfo.Tag + abr.Status.SCMInfo.Path)
 	list := &v1alpha1.DependencyBuildList{}
 	lbls := map[string]string{
 		DependencyBuildIdLabel: depId,

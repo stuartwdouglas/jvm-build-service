@@ -85,10 +85,10 @@ func TestStateDiscovering(t *testing.T) {
 			g.Expect(db.Spec.ScmInfo.SCMType).Should(Equal("hoo"))
 			g.Expect(db.Spec.ScmInfo.Path).Should(Equal("ioo"))
 
-			g.Expect(abr.Status.ScmInfo.Tag).Should(Equal("foo"))
-			g.Expect(abr.Status.ScmInfo.SCMURL).Should(Equal("goo"))
-			g.Expect(abr.Status.ScmInfo.SCMType).Should(Equal("hoo"))
-			g.Expect(abr.Status.ScmInfo.Path).Should(Equal("ioo"))
+			g.Expect(abr.Status.SCMInfo.Tag).Should(Equal("foo"))
+			g.Expect(abr.Status.SCMInfo.SCMURL).Should(Equal("goo"))
+			g.Expect(abr.Status.SCMInfo.SCMType).Should(Equal("hoo"))
+			g.Expect(abr.Status.SCMInfo.Path).Should(Equal("ioo"))
 		}
 	}
 

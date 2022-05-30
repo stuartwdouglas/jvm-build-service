@@ -188,6 +188,7 @@ spec:
       env:
         - name: QUARKUS_REST_CLIENT_CACHE_SERVICE_URL
           value: "http://hacbs-jvm-cache.default.svc.cluster.local"
+
       name: proxy
       livenessProbe:
         httpGet:
