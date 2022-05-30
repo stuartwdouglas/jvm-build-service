@@ -31,7 +31,7 @@ spec:
       description: maven goals to run
       type: array
       default:
-        - "package"
+        - "install"
     - name: MAVEN_MIRROR_URL
       description: The Maven repository mirror url
       type: string

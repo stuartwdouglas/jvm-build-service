@@ -41,16 +41,18 @@ const (
 )
 
 type ReconcileArtifactBuildRequest struct {
-	client        client.Client
-	scheme        *runtime.Scheme
-	eventRecorder record.EventRecorder
+	client           client.Client
+	scheme           *runtime.Scheme
+	eventRecorder    record.EventRecorder
+	nonCachingClient client.Client
 }
 
-func newReconciler(mgr ctrl.Manager) reconcile.Reconciler {
+func newReconciler(mgr ctrl.Manager, nonCachingClient client.Client) reconcile.Reconciler {
 	return &ReconcileArtifactBuildRequest{
-		client:        mgr.GetClient(),
-		scheme:        mgr.GetScheme(),
-		eventRecorder: mgr.GetEventRecorderFor("ArtifactBuild"),
+		client:           mgr.GetClient(),
+		scheme:           mgr.GetScheme(),
+		eventRecorder:    mgr.GetEventRecorderFor("ArtifactBuild"),
+		nonCachingClient: nonCachingClient,
 	}
 }
 
@@ -109,7 +111,7 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 		LabelSelector: labels.SelectorFromSet(map[string]string{ArtifactBuildRequestIdLabel: hash}),
 	}
 	trl := pipelinev1beta1.TaskRunList{}
-	err := r.client.List(ctx, &trl, listOpts)
+	err := r.nonCachingClient.List(ctx, &trl, listOpts)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -171,7 +173,7 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 		LabelSelector: labels.SelectorFromSet(lbls),
 	}
 
-	if err := r.client.List(ctx, list, listOpts); err != nil {
+	if err := r.nonCachingClient.List(ctx, list, listOpts); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -281,7 +283,7 @@ func (r *ReconcileArtifactBuildRequest) handleStateBuilding(ctx context.Context,
 		LabelSelector: labels.SelectorFromSet(lbls),
 	}
 
-	if err := r.client.List(ctx, list, listOpts); err != nil {
+	if err := r.nonCachingClient.List(ctx, list, listOpts); err != nil {
 		return reconcile.Result{}, err
 	}
 	if len(list.Items) == 0 {

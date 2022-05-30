@@ -25,7 +25,7 @@ func setupClientAndReconciler(objs ...runtimeclient.Object) (runtimeclient.Clien
 	_ = v1alpha1.AddToScheme(scheme)
 	_ = pipelinev1beta1.AddToScheme(scheme)
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
-	reconciler := &ReconcileDependencyBuild{client: client, scheme: scheme, eventRecorder: &record.FakeRecorder{}}
+	reconciler := &ReconcileDependencyBuild{client: client, scheme: scheme, eventRecorder: &record.FakeRecorder{}, nonCachingClient: client}
 	return client, reconciler
 }
 

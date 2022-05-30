@@ -38,16 +38,18 @@ const (
 )
 
 type ReconcileDependencyBuild struct {
-	client        client.Client
-	scheme        *runtime.Scheme
-	eventRecorder record.EventRecorder
+	client           client.Client
+	scheme           *runtime.Scheme
+	eventRecorder    record.EventRecorder
+	nonCachingClient client.Client
 }
 
-func newReconciler(mgr ctrl.Manager) reconcile.Reconciler {
+func newReconciler(mgr ctrl.Manager, nonCachingClient client.Client) reconcile.Reconciler {
 	return &ReconcileDependencyBuild{
-		client:        mgr.GetClient(),
-		scheme:        mgr.GetScheme(),
-		eventRecorder: mgr.GetEventRecorderFor("DependencyBuild"),
+		client:           mgr.GetClient(),
+		scheme:           mgr.GetScheme(),
+		eventRecorder:    mgr.GetEventRecorderFor("DependencyBuild"),
+		nonCachingClient: nonCachingClient,
 	}
 }
 
@@ -193,7 +195,7 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, depI
 		Namespace:     db.Namespace,
 		LabelSelector: labels.SelectorFromSet(lbls),
 	}
-	if err := r.client.List(ctx, list, listOpts); err != nil {
+	if err := r.nonCachingClient.List(ctx, list, listOpts); err != nil {
 		return reconcile.Result{}, err
 	}
 	if len(list.Items) == 0 {
