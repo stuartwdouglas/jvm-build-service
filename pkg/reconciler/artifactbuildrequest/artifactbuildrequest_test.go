@@ -117,7 +117,7 @@ func TestStateDiscovering(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test",
 				Namespace: metav1.NamespaceDefault,
-				Labels:    map[string]string{ArtifactBuildRequestIdLabel: hashString(gav)},
+				Labels:    map[string]string{ArtifactBuildRequestIdLabel: ABRLabelForGAV(gav)},
 			},
 			Spec: pipelinev1beta1.TaskRunSpec{},
 			Status: pipelinev1beta1.TaskRunStatus{
@@ -137,7 +137,7 @@ func TestStateDiscovering(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test",
 				Namespace: metav1.NamespaceDefault,
-				Labels:    map[string]string{ArtifactBuildRequestIdLabel: hashString(gav)},
+				Labels:    map[string]string{ArtifactBuildRequestIdLabel: ABRLabelForGAV(gav)},
 			},
 			Spec: pipelinev1beta1.TaskRunSpec{},
 			Status: pipelinev1beta1.TaskRunStatus{
@@ -159,7 +159,7 @@ func TestStateDiscovering(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test",
 				Namespace: metav1.NamespaceDefault,
-				Labels:    map[string]string{ArtifactBuildRequestIdLabel: hashString(gav)},
+				Labels:    map[string]string{ArtifactBuildRequestIdLabel: ABRLabelForGAV(gav)},
 			},
 			Spec: pipelinev1beta1.TaskRunSpec{},
 			Status: pipelinev1beta1.TaskRunStatus{

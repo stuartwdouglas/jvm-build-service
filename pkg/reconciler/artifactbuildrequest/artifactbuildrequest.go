@@ -88,7 +88,7 @@ func (r *ReconcileArtifactBuildRequest) handleStateNew(ctx context.Context, abr 
 	tr.Spec.TaskRef = &pipelinev1beta1.TaskRef{Name: "lookup-artifact-location", Kind: pipelinev1beta1.NamespacedTaskKind}
 	tr.Namespace = abr.Namespace
 	tr.GenerateName = abr.Name + "-scm-discovery-"
-	tr.Labels = map[string]string{ArtifactBuildRequestIdLabel: hashString(abr.Spec.GAV), TaskRunLabel: ""}
+	tr.Labels = map[string]string{ArtifactBuildRequestIdLabel: ABRLabelForGAV(abr.Spec.GAV), TaskRunLabel: ""}
 	tr.Spec.Params = append(tr.Spec.Params, pipelinev1beta1.Param{Name: "GAV", Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: abr.Spec.GAV}})
 	if err := controllerutil.SetOwnerReference(abr, &tr, r.scheme); err != nil {
 		return reconcile.Result{}, err
@@ -105,11 +105,12 @@ func (r *ReconcileArtifactBuildRequest) handleStateNew(ctx context.Context, abr 
 
 func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Context, abr *v1alpha1.ArtifactBuildRequest) (reconcile.Result, error) {
 	//lets look up our discovery task
-	hash := hashString(abr.Spec.GAV)
+	hash := ABRLabelForGAV(abr.Spec.GAV)
 	listOpts := &client.ListOptions{
 		Namespace:     abr.Namespace,
 		LabelSelector: labels.SelectorFromSet(map[string]string{ArtifactBuildRequestIdLabel: hash}),
 	}
+	r.eventRecorder.Eventf(abr, corev1.EventTypeWarning, "TESTING", "1 to building %s/%s", abr.Namespace, abr.Name)
 	trl := pipelinev1beta1.TaskRunList{}
 	err := r.nonCachingClient.List(ctx, &trl, listOpts)
 	if err != nil {
@@ -243,6 +244,9 @@ func hashString(hashInput string) string {
 	hash := md5.Sum([]byte(hashInput))
 	depId := hex.EncodeToString(hash[:])
 	return depId
+}
+func ABRLabelForGAV(hashInput string) string {
+	return hashString(hashInput)
 }
 
 func (r *ReconcileArtifactBuildRequest) handleStateComplete(ctx context.Context, abr *v1alpha1.ArtifactBuildRequest) (reconcile.Result, error) {

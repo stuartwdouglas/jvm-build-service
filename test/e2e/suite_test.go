@@ -101,9 +101,8 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	nonCachingClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).ToNot(HaveOccurred())
-	err = artifactbuildrequest.SetupNewReconcilerWithManager(k8sManager, nonCachingClient)
+	err = artifactbuildrequest.SetupNewReconcilerWithManager(k8sManager, k8sClient)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {
