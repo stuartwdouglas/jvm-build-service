@@ -103,9 +103,10 @@ func (r *ReconcileArtifactBuildRequest) handleStateNew(ctx context.Context, abr 
 
 func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Context, abr *v1alpha1.ArtifactBuildRequest) (reconcile.Result, error) {
 	//lets look up our discovery task
+	hash := hashString(abr.Spec.GAV)
 	listOpts := &client.ListOptions{
 		Namespace:     abr.Namespace,
-		LabelSelector: labels.SelectorFromSet(map[string]string{ArtifactBuildRequestIdLabel: hashString(abr.Spec.GAV)}),
+		LabelSelector: labels.SelectorFromSet(map[string]string{ArtifactBuildRequestIdLabel: hash}),
 	}
 	trl := pipelinev1beta1.TaskRunList{}
 	err := r.client.List(ctx, &trl, listOpts)
@@ -120,21 +121,11 @@ func (r *ReconcileArtifactBuildRequest) handleStateDiscovering(ctx context.Conte
 		}
 	}
 	if tr == nil {
-		r.eventRecorder.Eventf(abr, corev1.EventTypeWarning, "NoTaskRun", "The ArtifactBuildRequest %s/%s did not have an associated TaskRun", abr.Namespace, abr.Name)
-		//no pipeline, very odd
-		if abr.Annotations == nil {
-			abr.Annotations = map[string]string{}
-		}
-		if abr.Annotations[TaskRunMissing] == "" {
-			//just wait and hope the TR appears
-			abr.Annotations[TaskRunMissing] = "true"
-			r.eventRecorder.Eventf(abr, corev1.EventTypeNormal, "NoTaskRun", "The ArtifactBuildRequest %s/%s will be retried after 1m", abr.Namespace, abr.Name)
-			return reconcile.Result{RequeueAfter: time.Minute}, nil
-		} else {
-			delete(abr.Annotations, TaskRunMissing)
-			abr.Status.State = v1alpha1.ArtifactBuildRequestStateNew
-			return reconcile.Result{}, r.client.Status().Update(ctx, abr)
-		}
+		r.eventRecorder.Eventf(abr, corev1.EventTypeWarning, "NoTaskRun", "The ArtifactBuildRequest %s/%s did not have an associated TaskRun for hash %s of GAV %s", abr.Namespace, abr.Name, hash, abr.Spec.GAV)
+		//no linked TR, this seems to happen randomly where the TR does not show up
+		//just return and next reconcile it is there
+		//TODO: Why is this happening? caching?
+		return reconcile.Result{RequeueAfter: time.Minute}, nil
 	}
 	if tr.Status.CompletionTime == nil {
 		return reconcile.Result{}, nil

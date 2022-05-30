@@ -266,6 +266,7 @@ spec:
             - clean
             - install
             - -Denforcer.skip
+            - -Dcheckstyle.skip
       workspaces:
         - name: maven-settings
           workspace: maven-settings

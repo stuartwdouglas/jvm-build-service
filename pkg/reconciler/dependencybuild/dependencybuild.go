@@ -108,7 +108,8 @@ func (r *ReconcileDependencyBuild) handleStateNew(ctx context.Context, db *v1alp
 	//then move the state to DependencyBuildStateDetect
 	//once this is not longer a hard coded stub it should trigger a TR/PR
 	//that looks at the repository and figures out which builder to use
-	db.Status.PotentialBuildRecipes = []*v1alpha1.BuildRecipe{{Image: "quay.io/sdouglas/hacbs-jdk11-builder:latest"},
+	db.Status.PotentialBuildRecipes = []*v1alpha1.BuildRecipe{
+		{Image: "quay.io/sdouglas/hacbs-jdk11-builder:latest"},
 		{Image: "quay.io/sdouglas/hacbs-jdk8-builder:latest"},
 		{Image: "quay.io/sdouglas/hacbs-jdk17-builder:latest"}}
 	db.Status.State = v1alpha1.DependencyBuildStateDetect
@@ -196,25 +197,11 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, depI
 		return reconcile.Result{}, err
 	}
 	if len(list.Items) == 0 {
-		//no linked pr, lets try and submit the build again
-		//this should not really happen, mostly likely the next transition
-		//will be to failed
+		//no linked pr, this seems to happen randomly where the PR does not show up
+		//just return and next reconcile it is there
+		//TODO: Why is this happening? caching?
 		r.eventRecorder.Eventf(db, v1.EventTypeWarning, "NoPipelineRun", "The DependencyBuild %s/%s did not have any PipelineRuns", db.Namespace, db.Name)
-		if db.Annotations == nil {
-			db.Annotations = map[string]string{}
-		}
-		if db.Annotations[PipelineRunMissing] == "" {
-			//just wait an hope the PR appears?
-			//I really don't understand this
-			//do we need a non-caching client?
-			db.Annotations[PipelineRunMissing] = "true"
-			r.eventRecorder.Eventf(db, v1.EventTypeNormal, "NoPipelineRun", "The DependencyBuild %s/%s will be retried after 1m", db.Namespace, db.Name)
-			return reconcile.Result{RequeueAfter: time.Minute}, nil
-		} else {
-			delete(db.Annotations, PipelineRunMissing)
-			db.Status.State = v1alpha1.DependencyBuildStateSubmitBuild
-			return reconcile.Result{}, r.client.Status().Update(ctx, db)
-		}
+		return reconcile.Result{}, nil
 	}
 	var pr *pipelinev1beta1.PipelineRun
 	//look for the most recent one, there could be multiple builds if earlier recipes failed
