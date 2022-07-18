@@ -254,8 +254,6 @@ spec:
           runAsUser: 0
         imagePullPolicy: IfNotPresent
         env:
-          - name: QUARKUS_REST_CLIENT_CACHE_SERVICE_URL
-            value: "http://hacbs-jvm-cache.jvm-build-service.svc.cluster.local"
           - name: QUARKUS_LOG_FILE_ENABLE
             value: "true"
           - name: QUARKUS_LOG_FILE_PATH
@@ -612,8 +610,6 @@ spec:
           runAsUser: 0
         imagePullPolicy: IfNotPresent
         env:
-          - name: QUARKUS_REST_CLIENT_CACHE_SERVICE_URL
-            value: "http://hacbs-jvm-cache.jvm-build-service.svc.cluster.local"
           - name: QUARKUS_LOG_FILE_ENABLE
             value: "true"
           - name: QUARKUS_LOG_FILE_PATH

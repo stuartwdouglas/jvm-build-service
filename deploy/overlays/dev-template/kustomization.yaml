@@ -7,9 +7,6 @@ bases:
  - "../../cache/overlays/dev-template"
  - "../../operator/overlays/dev-template"
 
-resources:
-  - localstack.yaml
-
 patches:
  - patch: |-
      - op: replace
@@ -25,3 +22,6 @@ patches:
    target:
      kind: Task
      name: maven
+
+patchesStrategicMerge:
+  - config.yaml
