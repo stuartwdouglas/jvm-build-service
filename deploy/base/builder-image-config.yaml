@@ -1,0 +1,18 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jvm-build-service-builder-images
+  namespace: jvm-build-service
+data:
+  BUILDER_JDK11_DEFAULT.IMAGE: "quay.io/redhat-appstudio/hacbs-jdk11-builder:"
+  BUILDER_JDK11_DEFAULT.TAGS: "jdk=11,maven=3,maven=3.8,maven=3.8.6,gradle=7.5,gradle=7"
+  BUILDER_JDK11_DEFAULT.PRIORITY: "100"
+
+  BUILDER_JDK17_DEFAULT.IMAGE: "quay.io/redhat-appstudio/hacbs-jdk17-builder"
+  BUILDER_JDK17_DEFAULT.TAGS: "jdk=17,maven=3,maven=3.8,maven=3.8.6,gradle=7.5,gradle=7"
+  BUILDER_JDK17_DEFAULT.PRIORITY: "200"
+
+  BUILDER_JDK8_DEFAULT.IMAGE: "quay.io/redhat-appstudio/hacbs-jdk8-builder"
+  BUILDER_JDK8_DEFAULT.TAGS: "jdk=8,maven=3,maven=3.8,maven=3.8.6,gradle=7.5,gradle=7"
+  BUILDER_JDK8_DEFAULT.PRIORITY: "200"

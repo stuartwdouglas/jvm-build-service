@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +47,9 @@ const (
 	BuildInfoTaskVersion   = "VERSION"
 	BuildInfoTaskMessage   = "message"
 	BuildInfoTaskBuildInfo = "build-info"
+
+	BuildServiceNamespace  = "jvm-build-service"
+	BuilderImagesConfigMap = "jvm-build-service-builder-images"
 
 	TaskType          = "jvmbuildservice.io/task-type"
 	TaskTypeBuildInfo = "build-info"
@@ -244,7 +248,10 @@ func (r *ReconcileDependencyBuild) handleStateAnalyzeBuild(ctx context.Context, 
 				Max       string
 				Preferred string
 			}
-			Invocations      [][]string
+			Invocations []struct {
+				ToolName   string
+				Invocation []string
+			}
 			EnforceVersion   string
 			IgnoredArtifacts []string
 		}{}
@@ -253,19 +260,63 @@ func (r *ReconcileDependencyBuild) handleStateAnalyzeBuild(ctx context.Context, 
 			r.eventRecorder.Eventf(&db, v1.EventTypeWarning, "InvalidJson", "Failed to unmarshal build info for AB %s/%s JSON: %s", db.Namespace, db.Name, buildInfo)
 			return reconcile.Result{}, err
 		}
+		//load our config map with builder image data
+		buildConfigMap := v1.ConfigMap{}
+		err := r.client.Get(ctx, types.NamespacedName{Name: BuilderImagesConfigMap, Namespace: BuildServiceNamespace}, &buildConfigMap)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		type builderImageType struct {
+			Priority int
+			Name     string
+		}
+		builderInfo := []builderImageType{}
+		for k, v := range buildConfigMap.Data {
+			//there are 3 keys per image, the actual name in the key map
+			//is not important, we just want the image, the priority and the tags
+			if strings.HasSuffix(k, ".IMAGE") {
+				name := strings.TrimSuffix(k, ".IMAGE")
+				priorityString := buildConfigMap.Data[name+".PRIORITY"]
+				tagsString := buildConfigMap.Data[name+".TAGS"]
+				priority, err := strconv.Atoi(priorityString)
+				if len(priorityString) == 0 || err != nil {
+					r.eventRecorder.Eventf(&db, v1.EventTypeWarning, "InvalidBuilderImage", "Failed to load priority for builder image %s in ConfigMap %s/%s", k, BuildServiceNamespace, BuilderImagesConfigMap)
+					continue
+				}
+				if len(tagsString) == 0 {
+					r.eventRecorder.Eventf(&db, v1.EventTypeWarning, "InvalidBuilderImage", "Failed to load tags for builder image %s in ConfigMap %s/%s", k, BuildServiceNamespace, BuilderImagesConfigMap)
+					continue
+				}
+				//we store a map of the tag mapping to tool versions
+				toolMatch := map[string]int{}
+				for _, tag := range strings.Split(tagsString,  not ",") {
+					parts := strings.Split(tag, "=")
+					tool := parts[0]
+					version := parts[1]
+					//for now we will just ignore the version
+					if unmarshalled.Tools {
+
+					}
+				}
+				builderInfo = append(builderInfo, builderImageType{Name: v, Priority: priority})
+			}
+		}
+		for {
+
+		}
+
+		//now we need to figure out the build recipe order
+		//this consists of looking through all our builder images in priority order
+		//if the builder image has all required tools, and a version match, then it is added to the builder order list
+
 		//for now we are ignoring the tool versions
 		//and just using the supplied invocations
 		buildRecipes := []*v1alpha1.BuildRecipe{}
-		_, maven := unmarshalled.Tools["maven"]
+		_, maven := unmarshalled.Tools["mvn"]
 		_, gradle := unmarshalled.Tools["gradle"]
 		for _, image := range []string{"quay.io/sdouglas/hacbs-jdk11-builder:latest", "quay.io/sdouglas/hacbs-jdk8-builder:latest", "quay.io/sdouglas/hacbs-jdk17-builder:latest"} {
 			for _, command := range unmarshalled.Invocations {
-				if maven {
-					buildRecipes = append(buildRecipes, &v1alpha1.BuildRecipe{Task: "run-maven-component-build", Image: image, CommandLine: command, EnforceVersion: unmarshalled.EnforceVersion, IgnoredArtifacts: unmarshalled.IgnoredArtifacts})
-				}
-				if gradle {
-					buildRecipes = append(buildRecipes, &v1alpha1.BuildRecipe{Task: "run-gradle-component-build", Image: image, CommandLine: command, EnforceVersion: unmarshalled.EnforceVersion, IgnoredArtifacts: unmarshalled.IgnoredArtifacts})
-				}
+				buildRecipes = append(buildRecipes, &v1alpha1.BuildRecipe{Task: "run-" + command.ToolName + "-component-build", Image: image, CommandLine: command.Invocation, EnforceVersion: unmarshalled.EnforceVersion, IgnoredArtifacts: unmarshalled.IgnoredArtifacts})
 			}
 		}
 		db.Status.PotentialBuildRecipes = buildRecipes
@@ -308,6 +359,18 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, db *
 	tr.Name = currentDependencyBuildTaskName(db)
 	tr.Labels = map[string]string{artifactbuild.DependencyBuildIdLabel: db.Labels[artifactbuild.DependencyBuildIdLabel], artifactbuild.TaskRunLabel: "", TaskType: TaskTypeBuild}
 
+	aa:=pipelinev1beta1.PipelineRun{
+		Spec: pipelinev1beta1.PipelineRunSpec{
+			PipelineSpec: &pipelinev1beta1.PipelineSpec{
+				Tasks: []pipelinev1beta1.PipelineTask{{
+					TaskSpec:
+				}},
+			},
+		},
+	}
+	tr.Spec.TaskSpec = &pipelinev1beta1.TaskSpec{
+
+	}
 	tr.Spec.TaskRef = &pipelinev1beta1.TaskRef{Name: db.Status.CurrentBuildRecipe.Task, Kind: pipelinev1beta1.ClusterTaskKind}
 	tr.Spec.Params = []pipelinev1beta1.Param{
 		{Name: TaskScmUrl, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Spec.ScmInfo.SCMURL}},
