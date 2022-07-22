@@ -12,6 +12,9 @@ public class BuildRecipe {
 
     private List<String> ignoredArtifacts;
 
+    boolean maven;
+
+    boolean gradle;
     public String getImage() {
         return image;
     }
@@ -54,6 +57,24 @@ public class BuildRecipe {
 
     public BuildRecipe setIgnoredArtifacts(List<String> ignoredArtifacts) {
         this.ignoredArtifacts = ignoredArtifacts;
+        return this;
+    }
+
+    public boolean isMaven() {
+        return maven;
+    }
+
+    public BuildRecipe setMaven(boolean maven) {
+        this.maven = maven;
+        return this;
+    }
+
+    public boolean isGradle() {
+        return gradle;
+    }
+
+    public BuildRecipe setGradle(boolean gradle) {
+        this.gradle = gradle;
         return this;
     }
 }
