@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/redhat-appstudio/jvm-build-service/pkg/reconciler/artifactbuild"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -359,6 +360,44 @@ func TestExampleRun(t *testing.T) {
 		})
 		if err != nil {
 			debugAndFailTest(ta, "timed out waiting for generation of artifactbuilds and dependencybuilds")
+		}
+	})
+
+	ta.t.Run("taskruns related to artifactbuilds and dependencybuilds generated", func(t *testing.T) {
+		err = wait.PollImmediate(ta.interval, ta.timeout, func() (done bool, err error) {
+			taskRuns, err := tektonClient.TektonV1beta1().TaskRuns(ta.ns).List(context.TODO(), metav1.ListOptions{})
+			if err != nil {
+				ta.Logf(fmt.Sprintf("taskrun list error: %s", err.Error()))
+				return false, nil
+			}
+			if len(taskRuns.Items) == 0 {
+				ta.Logf("no taskruns yet")
+				return false, nil
+			}
+			foundGenericLabel := false
+			foundABRLabel := false
+			foundDBLabel := false
+			for _, taskRun := range taskRuns.Items {
+				ta.Logf(fmt.Sprintf("taskrun %s has label map of len %d", taskRun.Name, len(taskRun.Labels)))
+				for k := range taskRun.Labels {
+					if k == artifactbuild.PipelineRunLabel {
+						foundGenericLabel = true
+					}
+					if k == artifactbuild.ArtifactBuildIdLabel {
+						foundABRLabel = true
+					}
+					if k == artifactbuild.DependencyBuildIdLabel {
+						foundDBLabel = true
+					}
+					if foundABRLabel && foundDBLabel && foundGenericLabel {
+						return true, nil
+					}
+				}
+			}
+			return false, nil
+		})
+		if err != nil {
+			debugAndFailTest(ta, "timed out waiting for artifactbuild and dependencybuild related taskruns")
 		}
 	})
 
