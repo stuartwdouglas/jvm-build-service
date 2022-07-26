@@ -303,3 +303,64 @@ func TestStateBuilding(t *testing.T) {
 		g.Expect(db.Status.Contaminants).Should(ContainElement("com.acme:bar:1.0"))
 	})
 }
+
+func TestStateCompleteFixingContamination(t *testing.T) {
+	ctx := context.TODO()
+	var client runtimeclient.Client
+	var reconciler *ReconcileDependencyBuild
+	now := metav1.Now()
+	contaminatedName := "contaminated-build"
+	setup := func(g *WithT) {
+		abr := &v1alpha1.ArtifactBuild{
+			TypeMeta: metav1.TypeMeta{},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test",
+				Namespace: metav1.NamespaceDefault,
+				Labels:    map[string]string{artifactbuild.DependencyBuildIdLabel: "test"},
+				Annotations: map[string]string{
+					artifactbuild.DependencyBuildContaminatedBy + "suffix": contaminatedName,
+				},
+			},
+			Spec: v1alpha1.ArtifactBuildSpec{GAV: "com.test:test:1.0"},
+			Status: v1alpha1.ArtifactBuildStatus{
+				State: v1alpha1.ArtifactBuildStateComplete,
+			},
+		}
+		contaiminated := &v1alpha1.DependencyBuild{
+			TypeMeta: metav1.TypeMeta{},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      contaminatedName,
+				Namespace: metav1.NamespaceDefault,
+				Labels:    map[string]string{artifactbuild.DependencyBuildIdLabel: hashToString("")},
+			},
+			Spec: v1alpha1.DependencyBuildSpec{},
+			Status: v1alpha1.DependencyBuildStatus{State: v1alpha1.DependencyBuildStateBuilding,
+				CurrentBuildRecipe: &v1alpha1.BuildRecipe{Image: "quay.io/sdouglas/hacbs-jdk11-builder:latest"}},
+		}
+
+		client, reconciler = setupClientAndReconciler(abr, contaiminated)
+		pr := pipelinev1beta1.PipelineRun{}
+		pr.Namespace = metav1.NamespaceDefault
+		pr.Name = "contaminated-build-build-0"
+		pr.Status.CompletionTime = &now
+		pr.Labels = map[string]string{artifactbuild.DependencyBuildIdLabel: hashToString(""), PipelineType: PipelineTypeBuild}
+		pr.Status.PipelineResults = []pipelinev1beta1.PipelineRunResult{{Name: "contaminants", Value: "com.test:test:1.0"}}
+		pr.Status.SetCondition(&apis.Condition{
+			Type:               apis.ConditionSucceeded,
+			Status:             "True",
+			LastTransitionTime: apis.VolatileTime{Inner: metav1.Time{Time: time.Now()}},
+		})
+		g.Expect(controllerutil.SetOwnerReference(contaiminated, &pr, reconciler.scheme))
+		g.Expect(client.Create(ctx, &pr))
+	}
+	t.Run("Test adding contamination", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		setup(g)
+		db := v1alpha1.DependencyBuild{}
+		g.Expect(reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: "contaminated-build-build-0"}}))
+		g.Expect(client.Get(ctx, types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: contaminatedName}, &db))
+		g.Expect(db.Status.State).Should(Equal(v1alpha1.DependencyBuildStateContaminated))
+		g.Expect(db.Status.Contaminants).Should(Equal([]string{"com.test:test:1.0"}))
+
+	})
+}
