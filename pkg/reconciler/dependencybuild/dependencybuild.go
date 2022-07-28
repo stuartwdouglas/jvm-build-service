@@ -62,16 +62,18 @@ var (
 )
 
 type ReconcileDependencyBuild struct {
-	client        client.Client
-	scheme        *runtime.Scheme
-	eventRecorder record.EventRecorder
+	client             client.Client
+	scheme             *runtime.Scheme
+	eventRecorder      record.EventRecorder
+	builderImageConfig *configmap.BuilderImageConfig
 }
 
-func newReconciler(mgr ctrl.Manager) reconcile.Reconciler {
+func newReconciler(mgr ctrl.Manager, bi *configmap.BuilderImageConfig) reconcile.Reconciler {
 	return &ReconcileDependencyBuild{
-		client:        mgr.GetClient(),
-		scheme:        mgr.GetScheme(),
-		eventRecorder: mgr.GetEventRecorderFor("DependencyBuild"),
+		client:             mgr.GetClient(),
+		scheme:             mgr.GetScheme(),
+		eventRecorder:      mgr.GetEventRecorderFor("DependencyBuild"),
+		builderImageConfig: bi,
 	}
 }
 
@@ -253,6 +255,15 @@ func (r *ReconcileDependencyBuild) handleStateAnalyzeBuild(ctx context.Context, 
 			r.eventRecorder.Eventf(&db, v1.EventTypeWarning, "InvalidJson", "Failed to unmarshal build info for AB %s/%s JSON: %s", db.Namespace, db.Name, buildInfo)
 			return reconcile.Result{}, err
 		}
+		//read our builder images from the config
+		mavenImages := []string{}
+		{
+			r.builderImageConfig.Lock.Lock()
+			defer r.builderImageConfig.Lock.Unlock()
+			for _, i := range r.builderImageConfig.Images {
+				mavenImages = append(mavenImages, i.Image)
+			}
+		}
 		// for now we are ignoring the tool versions
 		// and just using the supplied invocations
 		buildRecipes := []*v1alpha1.BuildRecipe{}
@@ -261,12 +272,13 @@ func (r *ReconcileDependencyBuild) handleStateAnalyzeBuild(ctx context.Context, 
 
 		switch {
 		case maven:
-			for _, image := range []string{"quay.io/sdouglas/hacbs-jdk11-builder:latest", "quay.io/sdouglas/hacbs-jdk8-builder:latest", "quay.io/sdouglas/hacbs-jdk17-builder:latest"} {
+			for _, image := range mavenImages {
 				for _, command := range unmarshalled.Invocations {
 					buildRecipes = append(buildRecipes, &v1alpha1.BuildRecipe{Image: image, CommandLine: command, EnforceVersion: unmarshalled.EnforceVersion, IgnoredArtifacts: unmarshalled.IgnoredArtifacts, ToolVersion: unmarshalled.ToolVersion, JavaVersion: unmarshalled.JavaVersion, Maven: true})
 				}
 			}
 		case gradle:
+			//TODO: update gradle to use builder images
 			for _, image := range []string{"quay.io/dwalluck/gradle:latest"} {
 				for _, command := range unmarshalled.Invocations {
 					buildRecipes = append(buildRecipes, &v1alpha1.BuildRecipe{Image: image, CommandLine: command, EnforceVersion: unmarshalled.EnforceVersion, IgnoredArtifacts: unmarshalled.IgnoredArtifacts, ToolVersion: unmarshalled.ToolVersion, JavaVersion: unmarshalled.JavaVersion, Gradle: true})
@@ -381,6 +393,7 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, db *
 	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_S3_AWS_REGION", Value: "us-east-1"})
 	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_S3_AWS_CREDENTIALS_TYPE", Value: "static"})
 	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_ACCESS_KEY_ID", Value: "accesskey"})
+	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_SECRET_ACCESS_KEY", Value: "secretkey"})
 	pr.Spec.Params = []pipelinev1beta1.Param{
 		{Name: PipelineScmUrl, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Spec.ScmInfo.SCMURL}},
 		{Name: PipelineScmTag, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Spec.ScmInfo.Tag}},
