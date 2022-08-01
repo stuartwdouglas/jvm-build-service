@@ -24,7 +24,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -53,30 +52,14 @@ type ReconcileConfigMap struct {
 	scheme               *runtime.Scheme
 	eventRecorder        record.EventRecorder
 	configuredCacheImage string
-	builderImages        *BuilderImageConfig
 }
 
-// BuilderImageConfig Shared builder image config, it is updated in this controller
-// and read in the DependencyBuilds controller
-// It must be accessed under lock
-type BuilderImageConfig struct {
-	Lock   sync.Locker
-	Images []BuilderImage
-}
-
-type BuilderImage struct {
-	Name  string
-	Image string
-}
-
-func newReconciler(mgr ctrl.Manager, config map[string]string, bi *BuilderImageConfig) reconcile.Reconciler {
-	processBuilderImages(bi, config)
+func newReconciler(mgr ctrl.Manager, config map[string]string) reconcile.Reconciler {
 	return &ReconcileConfigMap{
 		client:               mgr.GetClient(),
 		scheme:               mgr.GetScheme(),
 		eventRecorder:        mgr.GetEventRecorderFor("ArtifactBuild"),
 		configuredCacheImage: config[SystemCacheImage],
-		builderImages:        bi,
 	}
 }
 
@@ -405,24 +388,9 @@ func (r *ReconcileConfigMap) handleSystemConfigMap(ctx context.Context, request 
 	} else {
 		r.configuredCacheImage = configMap.Data[SystemCacheImage]
 	}
-	processBuilderImages(r.builderImages, configMap.Data)
-
 	return reconcile.Result{}, nil
 }
 
-func processBuilderImages(bi *BuilderImageConfig, config map[string]string) {
-	bi.Lock.Lock()
-	defer bi.Lock.Unlock()
-	names := strings.Split(config[SystemBuilderImages], ",")
-	for _, i := range names {
-		image := config[fmt.Sprintf(SystemBuilderImageFormat, i)]
-		if image == "" {
-			log.Info(fmt.Sprintf("Missing system config for builder image %s, image will not be usable", image))
-		} else {
-			bi.Images = append(bi.Images, BuilderImage{Image: image, Name: i})
-		}
-	}
-}
 func i64a(v int64) *int64 {
 	return &v
 }

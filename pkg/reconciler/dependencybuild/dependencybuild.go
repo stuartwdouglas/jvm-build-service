@@ -62,18 +62,16 @@ var (
 )
 
 type ReconcileDependencyBuild struct {
-	client             client.Client
-	scheme             *runtime.Scheme
-	eventRecorder      record.EventRecorder
-	builderImageConfig *configmap.BuilderImageConfig
+	client        client.Client
+	scheme        *runtime.Scheme
+	eventRecorder record.EventRecorder
 }
 
-func newReconciler(mgr ctrl.Manager, bi *configmap.BuilderImageConfig) reconcile.Reconciler {
+func newReconciler(mgr ctrl.Manager) reconcile.Reconciler {
 	return &ReconcileDependencyBuild{
-		client:             mgr.GetClient(),
-		scheme:             mgr.GetScheme(),
-		eventRecorder:      mgr.GetEventRecorderFor("DependencyBuild"),
-		builderImageConfig: bi,
+		client:        mgr.GetClient(),
+		scheme:        mgr.GetScheme(),
+		eventRecorder: mgr.GetEventRecorderFor("DependencyBuild"),
 	}
 }
 
@@ -256,13 +254,10 @@ func (r *ReconcileDependencyBuild) handleStateAnalyzeBuild(ctx context.Context, 
 			return reconcile.Result{}, err
 		}
 		//read our builder images from the config
-		mavenImages := []string{}
-		{
-			r.builderImageConfig.Lock.Lock()
-			defer r.builderImageConfig.Lock.Unlock()
-			for _, i := range r.builderImageConfig.Images {
-				mavenImages = append(mavenImages, i.Image)
-			}
+		var mavenImages []string
+		mavenImages, err = r.processBuilderImages(ctx)
+		if err != nil {
+			return reconcile.Result{}, err
 		}
 		// for now we are ignoring the tool versions
 		// and just using the supplied invocations
@@ -295,6 +290,24 @@ func (r *ReconcileDependencyBuild) handleStateAnalyzeBuild(ctx context.Context, 
 	return reconcile.Result{}, r.client.Status().Update(ctx, &db)
 
 }
+func (r *ReconcileDependencyBuild) processBuilderImages(ctx context.Context) ([]string, error) {
+	configMap := v1.ConfigMap{}
+	err := r.client.Get(ctx, types.NamespacedName{Namespace: configmap.SystemConfigMapNamespace, Name: configmap.SystemConfigMapName}, &configMap)
+	if err != nil {
+		return nil, err
+	}
+	result := []string{}
+	names := strings.Split(configMap.Data[configmap.SystemBuilderImages], ",")
+	for _, i := range names {
+		image := configMap.Data[fmt.Sprintf(configmap.SystemBuilderImageFormat, i)]
+		if image == "" {
+			log.Info(fmt.Sprintf("Missing system config for builder image %s, image will not be usable", image))
+		} else {
+			result = append(result, image)
+		}
+	}
+	return result, nil
+}
 
 func (r *ReconcileDependencyBuild) handleStateSubmitBuild(ctx context.Context, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
 	//the current recipe has been built, we need to pick a new one
@@ -306,6 +319,8 @@ func (r *ReconcileDependencyBuild) handleStateSubmitBuild(ctx context.Context, d
 	}
 	//no more attempts
 	if len(db.Status.PotentialBuildRecipes) == 0 {
+
+		log.Error(errors.NewBadRequest("deps all builds"), "deps all failed", "bi", db.Status.FailedBuildRecipes)
 		db.Status.State = v1alpha1.DependencyBuildStateFailed
 		r.eventRecorder.Eventf(db, v1.EventTypeWarning, "BuildFailed", "The DependencyBuild %s/%s moved to failed, all recipes exhausted", db.Namespace, db.Name)
 		return reconcile.Result{}, r.client.Status().Update(ctx, db)
