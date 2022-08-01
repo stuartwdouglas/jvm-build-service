@@ -9,8 +9,6 @@ echo
 echo "👉 Registering sample pipeline:"
 echo
 
-kubectl apply -f $DIR/pipeline.yaml
-
 kubectl apply -f $DIR/openshift-specific-rbac.yaml || true
 
 echo

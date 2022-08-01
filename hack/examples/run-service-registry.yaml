@@ -4,7 +4,8 @@ metadata:
   generateName: service-registry-build-
 spec:
   pipelineRef:
-    name: sample-component-build
+    name: java-builder
+    bundle: quay.io/redhat-appstudio/hacbs-templates-bundle:latest
   params:
     - name: url
       value: https://github.com/Apicurio/apicurio-registry.git

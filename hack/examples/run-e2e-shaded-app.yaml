@@ -4,14 +4,17 @@ metadata:
   generateName: sample-component-build-
 spec:
   pipelineRef:
-    name: sample-component-build
+    name: java-builder
+    bundle: quay.io/redhat-appstudio/hacbs-templates-bundle:latest
   params:
-    - name: url
+    - name: git-url
       value: https://github.com/stuartwdouglas/shaded-java-app
+    - name: output-image
+      value: broken.io/broken:test
   workspaces:
     - name: maven-settings
       emptyDir: {}
-    - name: shared-workspace
+    - name: workspace
       volumeClaimTemplate:
         spec:
           accessModes:
@@ -21,4 +24,4 @@ spec:
               storage: 1Gi
   serviceAccountNames:
     - serviceAccountName: pipeline
-      taskName: maven-run
+      taskName: build-container
