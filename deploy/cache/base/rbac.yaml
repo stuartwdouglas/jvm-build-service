@@ -1,7 +1,4 @@
-#====================================================================================================
-#This is no longer required, it should be removed once it is no longer reference by infra-deployments
-#====================================================================================================
-kind: Role
+kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: pipeline-anyuid-role
@@ -12,17 +9,3 @@ rules:
     resources: ["securitycontextconstraints"]
     verbs: ["use"]
 
----
-
-kind: RoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: pipeline-anyuid-rolebinding
-subjects:
-  - kind: ServiceAccount
-    name: hacbs-jvm-cache
-    namespace: jvm-build-service
-roleRef:
-  kind: Role
-  name: pipeline-anyuid-role
-  apiGroup: rbac.authorization.k8s.io

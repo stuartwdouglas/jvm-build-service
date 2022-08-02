@@ -9,7 +9,6 @@ import (
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v13 "k8s.io/api/rbac/v1"
-	"k8s.io/api/rbac/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -81,7 +80,7 @@ func (r *ReconcileConfigMap) Reconcile(ctx context.Context, request reconcile.Re
 	enabled := configMap.Data[EnableRebuilds] == "true"
 	if enabled {
 		log.Info("Setup Rebuilds %s", "name", request.Name)
-		err := r.setupRebuilts(ctx, request)
+		err := r.setupRebuilds(ctx, request)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -113,7 +112,6 @@ func (r *ReconcileConfigMap) setupCache(ctx context.Context, request reconcile.R
 			cache.Spec.Template.Spec.Containers = []corev1.Container{{
 				Name:            CacheDeploymentName,
 				ImagePullPolicy: "Always",
-				SecurityContext: &corev1.SecurityContext{RunAsUser: i64a(0)},
 				Ports: []corev1.ContainerPort{{
 					Name:          "http",
 					ContainerPort: 8080,
@@ -165,7 +163,7 @@ func (r *ReconcileConfigMap) setupCache(ctx context.Context, request reconcile.R
 	}
 	//TODO: make configurable
 	cache.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{
-		{Name: "CACHE_PATH", Value: "/cache"},
+		{Name: "CACHE_PATH", Value: "cache"},
 		{Name: "QUARKUS_VERTX_EVENT_LOOPS_POOL_SIZE", Value: "4"},
 		{Name: "QUARKUS_THREAD_POOL_MAX_THREADS", Value: "50"},
 	}
@@ -231,21 +229,6 @@ func (r *ReconcileConfigMap) setupCache(ctx context.Context, request reconcile.R
 	})
 	cache.Spec.Template.Spec.Containers[0].Image = r.configuredCacheImage
 
-	role := v1alpha1.Role{}
-	roleName := types.NamespacedName{Namespace: request.Namespace, Name: "pipeline-anyuid-role"}
-	err = r.client.Get(ctx, roleName, &role)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			role := v1alpha1.Role{}
-			role.Name = "pipeline-anyuid-role"
-			role.Namespace = request.Namespace
-			role.Rules = []v1alpha1.PolicyRule{{APIGroups: []string{"security.openshift.io"}, ResourceNames: []string{"anyuid"}, Resources: []string{"securitycontextconstraints"}, Verbs: []string{"use"}}}
-			err := r.client.Create(ctx, &role)
-			if err != nil {
-				return err
-			}
-		}
-	}
 	sa := corev1.ServiceAccount{}
 	saName := types.NamespacedName{Namespace: request.Namespace, Name: "hacbs-jvm-cache"}
 	err = r.client.Get(ctx, saName, &sa)
@@ -261,12 +244,12 @@ func (r *ReconcileConfigMap) setupCache(ctx context.Context, request reconcile.R
 		}
 	}
 	cb := v13.RoleBinding{}
-	cbName := types.NamespacedName{Namespace: request.Namespace, Name: "pipeline-anyuid-rolebinding"}
+	cbName := types.NamespacedName{Namespace: request.Namespace, Name: "hacbs-jvm-cache-anyuid-rolebinding"}
 	err = r.client.Get(ctx, cbName, &cb)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			cb := v13.RoleBinding{}
-			cb.Name = "pipeline-anyuid-rolebinding"
+			cb.Name = "hacbs-jvm-cache-anyuid-rolebinding"
 			cb.Namespace = request.Namespace
 			cb.RoleRef = v13.RoleRef{Kind: "Role", Name: "pipeline-anyuid-role", APIGroup: "rbac.authorization.k8s.io"}
 			cb.Subjects = []v13.Subject{{Kind: "ServiceAccount", Name: "hacbs-jvm-cache", Namespace: request.Namespace}}
@@ -284,7 +267,7 @@ func (r *ReconcileConfigMap) setupCache(ctx context.Context, request reconcile.R
 
 }
 
-func (r *ReconcileConfigMap) setupRebuilts(ctx context.Context, request reconcile.Request) error {
+func (r *ReconcileConfigMap) setupRebuilds(ctx context.Context, request reconcile.Request) error {
 	//setup localstack
 	//this is 100% temporary and needs to go away ASAP
 	localstack := v1.Deployment{}
@@ -292,6 +275,7 @@ func (r *ReconcileConfigMap) setupRebuilts(ctx context.Context, request reconcil
 	err := r.client.Get(ctx, deploymentName, &localstack)
 	if err != nil {
 		if errors.IsNotFound(err) {
+			log.Info("Creating localstack deployment", "name", LocalstackDeploymentName, "Namespace", request.Namespace)
 			localstack.Name = deploymentName.Name
 			localstack.Namespace = deploymentName.Namespace
 			var replicas int32
@@ -302,22 +286,23 @@ func (r *ReconcileConfigMap) setupRebuilts(ctx context.Context, request reconcil
 			localstack.Spec.Template.Spec.Containers = []corev1.Container{{
 				Name:            LocalstackDeploymentName,
 				ImagePullPolicy: "Always",
-				SecurityContext: &corev1.SecurityContext{RunAsUser: i64a(0)},
 				Ports: []corev1.ContainerPort{{
 					ContainerPort: 4572,
 				}},
 				Env: []corev1.EnvVar{{Name: "SERVICES", Value: "s3:4572"}},
 			}}
 			localstack.Spec.Template.Spec.Containers[0].Image = "localstack/localstack:0.11.5"
+			localstack.Spec.Template.Spec.ServiceAccountName = ServiceAccountName
 			return r.client.Create(ctx, &localstack)
 		} else {
 			return err
 		}
 	}
 	//and setup the service
-	err = r.client.Get(ctx, types.NamespacedName{Name: CacheDeploymentName, Namespace: request.Namespace}, &corev1.Service{})
+	err = r.client.Get(ctx, types.NamespacedName{Name: LocalstackDeploymentName, Namespace: request.Namespace}, &corev1.Service{})
 	if err != nil {
 		if errors.IsNotFound(err) {
+			log.Info("Creating localstack service", "name", LocalstackDeploymentName, "Namespace", request.Namespace)
 			service := corev1.Service{
 				ObjectMeta: ctrl.ObjectMeta{
 					Name:      LocalstackDeploymentName,
@@ -339,39 +324,8 @@ func (r *ReconcileConfigMap) setupRebuilts(ctx context.Context, request reconcil
 			if err != nil {
 				return err
 			}
-		}
-	}
-	log.Info("Pipeline service account", "name", request.Name)
-	sa := corev1.ServiceAccount{}
-	saName := types.NamespacedName{Namespace: request.Namespace, Name: "pipeline"}
-	err = r.client.Get(ctx, saName, &sa)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			sa := corev1.ServiceAccount{}
-			log.Info("Creating Pipeline service account", "name", request.Name)
-			sa.Name = "pipeline"
-			sa.Namespace = request.Namespace
-			err := r.client.Create(ctx, &sa)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	log.Info("Role binding", "name", request.Name, "namespace", request.Namespace)
-	cb := v13.RoleBinding{}
-	cbName := types.NamespacedName{Namespace: request.Namespace, Name: "pipeline"}
-	err = r.client.Get(ctx, cbName, &cb)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			cb := v13.RoleBinding{}
-			cb.Name = "pipeline"
-			cb.Namespace = request.Namespace
-			cb.RoleRef = v13.RoleRef{Kind: "ClusterRole", Name: "pipeline", APIGroup: "rbac.authorization.k8s.io"}
-			cb.Subjects = []v13.Subject{{Kind: "ServiceAccount", Name: "pipeline", Namespace: request.Namespace}}
-			err := r.client.Create(ctx, &cb)
-			if err != nil {
-				return err
-			}
+		} else {
+			return err
 		}
 	}
 	return nil
