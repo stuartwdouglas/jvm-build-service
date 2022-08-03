@@ -28,17 +28,18 @@ import (
 
 const (
 	//TODO eventually we'll need to decide if we want to make this tuneable
-	contextTimeout           = 300 * time.Second
-	UserConfigMapName        = "jvm-build-config"
-	CacheDeploymentName      = "jvm-build-workspace-artifact-cache"
-	LocalstackDeploymentName = "jvm-build-workspace-localstack"
-	EnableRebuilds           = "enable-rebuilds"
-	ServiceAccountName       = "hacbs-jvm-cache"
-	SystemConfigMapName      = "jvm-build-system-config"
-	SystemConfigMapNamespace = "jvm-build-service"
-	SystemCacheImage         = "image.cache"
-	SystemBuilderImages      = "builder-image.names"
-	SystemBuilderImageFormat = "builder-image.%s.image"
+	contextTimeout              = 300 * time.Second
+	UserConfigMapName           = "jvm-build-config"
+	UserConfigAdditionalRecipes = "additional-build-recipes"
+	CacheDeploymentName         = "jvm-build-workspace-artifact-cache"
+	LocalstackDeploymentName    = "jvm-build-workspace-localstack"
+	EnableRebuilds              = "enable-rebuilds"
+	ServiceAccountName          = "hacbs-jvm-cache"
+	SystemConfigMapName         = "jvm-build-system-config"
+	SystemConfigMapNamespace    = "jvm-build-service"
+	SystemCacheImage            = "image.cache"
+	SystemBuilderImages         = "builder-image.names"
+	SystemBuilderImageFormat    = "builder-image.%s.image"
 )
 
 var (
@@ -332,6 +333,15 @@ func (r *ReconcileConfigMap) setupRebuilds(ctx context.Context, request reconcil
 		}
 	}
 	return nil
+}
+
+func ReadUserConfigMap(client client.Client, ctx context.Context, namespace string) (map[string]string, error) {
+	configMap := corev1.ConfigMap{}
+	err := client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: UserConfigMapName}, &configMap)
+	if err != nil {
+		return nil, nil
+	}
+	return configMap.Data, nil
 }
 
 func (r *ReconcileConfigMap) handleSystemConfigMap(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {

@@ -157,9 +157,13 @@ func hashToString(unique string) string {
 }
 
 func (r *ReconcileDependencyBuild) handleStateNew(ctx context.Context, db *v1alpha1.DependencyBuild) (reconcile.Result, error) {
+	cm, err := configmap.ReadUserConfigMap(r.client, ctx, db.Namespace)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 	// create pipeline run
 	tr := pipelinev1beta1.PipelineRun{}
-	tr.Spec.PipelineSpec = createLookupBuildInfoPipeline(&db.Spec)
+	tr.Spec.PipelineSpec = createLookupBuildInfoPipeline(&db.Spec, cm)
 	tr.Namespace = db.Namespace
 	tr.GenerateName = db.Name + "-build-discovery-"
 	tr.Labels = map[string]string{artifactbuild.PipelineRunLabel: "", artifactbuild.DependencyBuildIdLabel: db.Name, PipelineType: PipelineTypeBuildInfo}
@@ -578,9 +582,13 @@ func (r *ReconcileDependencyBuild) handleStateContaminated(ctx context.Context, 
 	return reconcile.Result{}, nil
 }
 
-func createLookupBuildInfoPipeline(build *v1alpha1.DependencyBuildSpec) *pipelinev1beta1.PipelineSpec {
+func createLookupBuildInfoPipeline(build *v1alpha1.DependencyBuildSpec, config map[string]string) *pipelinev1beta1.PipelineSpec {
 	image := os.Getenv("JVM_BUILD_SERVICE_REQPROCESSOR_IMAGE")
 	recipes := os.Getenv("RECIPE_DATABASE")
+	additional, ok := config[configmap.UserConfigAdditionalRecipes]
+	if ok {
+		recipes = recipes + "," + additional
+	}
 	path := build.ScmInfo.Path
 	//TODO should the buidl request process require context to be set ?
 	if len(path) == 0 {
