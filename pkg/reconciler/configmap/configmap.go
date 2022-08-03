@@ -293,7 +293,10 @@ func (r *ReconcileConfigMap) setupRebuilds(ctx context.Context, request reconcil
 			}}
 			localstack.Spec.Template.Spec.Containers[0].Image = "localstack/localstack:0.11.5"
 			localstack.Spec.Template.Spec.ServiceAccountName = ServiceAccountName
-			return r.client.Create(ctx, &localstack)
+			err = r.client.Create(ctx, &localstack)
+			if err != nil {
+				return err
+			}
 		} else {
 			return err
 		}
