@@ -56,6 +56,15 @@ public class ContainerRegistryStorageTest {
         }
     }
 
+    @Test
+    public void testMissingFile() throws Exception {
+
+        Optional<RepositoryClient.RepositoryResult> artifactFile = localCache.getArtifactFile(POLICY, GROUP, "does-not-exist",
+                VERSION,
+                "does-not-exist");
+        Assertions.assertFalse(artifactFile.isPresent());
+    }
+
     private void testFile(String groupPath, String artifact, String file, Path containerRegistryCacheRoot) throws IOException {
 
         Path cachedFile = path.resolve(REBUILT).resolve(groupPath).resolve(artifact).resolve(VERSION)

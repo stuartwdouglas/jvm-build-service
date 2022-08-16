@@ -30,6 +30,7 @@ const (
 	//TODO eventually we'll need to decide if we want to make this tuneable
 	contextTimeout              = 300 * time.Second
 	UserConfigMapName           = "jvm-build-config"
+	UserSecretName              = "jvm-build-secrets"
 	UserConfigAdditionalRecipes = "additional-build-recipes"
 	CacheDeploymentName         = "jvm-build-workspace-artifact-cache"
 	LocalstackDeploymentName    = "jvm-build-workspace-localstack"
@@ -196,6 +197,7 @@ func (r *ReconcileConfigMap) setupCache(ctx context.Context, request reconcile.R
 	repos := []Repo{{name: "central", position: 200}}
 	if rebuildsEnabled {
 		repos = append(repos, Repo{name: "rebuilt", position: 100})
+
 		cache.Spec.Template.Spec.Containers[0].Env = append(cache.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "QUARKUS_S3_ENDPOINT_OVERRIDE",
 			Value: "http://" + LocalstackDeploymentName + "." + request.Namespace + ".svc.cluster.local:4572",
@@ -215,6 +217,41 @@ func (r *ReconcileConfigMap) setupCache(ctx context.Context, request reconcile.R
 		cache.Spec.Template.Spec.Containers[0].Env = append(cache.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_SECRET_ACCESS_KEY",
 			Value: "secretkey",
+		})
+		if configMap.Data["registry.owner"] != "" {
+			cache.Spec.Template.Spec.Containers[0].Env = append(cache.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:      "REGISTRY_OWNER",
+				ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: UserConfigMapName}, Key: "registry.owner"}},
+			})
+		}
+		if configMap.Data["registry.host"] != "" {
+			cache.Spec.Template.Spec.Containers[0].Env = append(cache.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:      "REGISTRY_HOST",
+				ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: UserConfigMapName}, Key: "registry.host"}},
+			})
+		}
+		if configMap.Data["registry.port"] != "" {
+			cache.Spec.Template.Spec.Containers[0].Env = append(cache.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:      "REGISTRY_PORT",
+				ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: UserConfigMapName}, Key: "registry.port"}},
+			})
+		}
+		if configMap.Data["registry.repository"] != "" {
+			cache.Spec.Template.Spec.Containers[0].Env = append(cache.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:      "REGISTRY_REPOSITORY",
+				ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: UserConfigMapName}, Key: "registry.repository"}},
+			})
+		}
+		if configMap.Data["registry.insecure"] != "" {
+			cache.Spec.Template.Spec.Containers[0].Env = append(cache.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:      "REGISTRY_INSECURE",
+				ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: UserConfigMapName}, Key: "registry.insecure"}},
+			})
+		}
+		//TODO: ensure this exists
+		cache.Spec.Template.Spec.Containers[0].Env = append(cache.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:      "REGISTRY_TOKEN",
+			ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: UserSecretName}, Key: "registry.token"}},
 		})
 	}
 	regex, err := regexp.Compile("maven-repository-(\\d+)-(\\w+)")

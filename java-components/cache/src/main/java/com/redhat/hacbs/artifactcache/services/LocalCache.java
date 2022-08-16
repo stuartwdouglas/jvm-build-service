@@ -218,9 +218,10 @@ public class LocalCache implements RepositoryClient {
                     return Optional.empty();
                 }
                 Log.errorf(e, "Failed to download artifact %s from %s", downloadTarget, repositoryClient);
-                throw new RuntimeException(e);
+                return Optional.empty();
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                Log.errorf(e, "Failed to download artifact %s from %s", downloadTarget, repositoryClient);
+                return Optional.empty();
             } finally {
                 inProgress.remove(key);
                 synchronized (this) {

@@ -6,9 +6,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,18 +24,17 @@ import org.eclipse.microprofile.config.ConfigProvider;
 
 import com.google.cloud.tools.jib.api.Credential;
 import com.google.cloud.tools.jib.api.DescriptorDigest;
-import com.google.cloud.tools.jib.api.ImageReference;
 import com.google.cloud.tools.jib.api.RegistryException;
+import com.google.cloud.tools.jib.api.RegistryUnauthorizedException;
 import com.google.cloud.tools.jib.blob.Blob;
 import com.google.cloud.tools.jib.event.EventHandlers;
-import com.google.cloud.tools.jib.frontend.CredentialRetrieverFactory;
 import com.google.cloud.tools.jib.http.FailoverHttpClient;
+import com.google.cloud.tools.jib.http.ResponseException;
 import com.google.cloud.tools.jib.image.json.BuildableManifestTemplate;
 import com.google.cloud.tools.jib.image.json.ManifestTemplate;
 import com.google.cloud.tools.jib.image.json.OciManifestTemplate;
 import com.google.cloud.tools.jib.registry.ManifestAndDigest;
 import com.google.cloud.tools.jib.registry.RegistryClient;
-import com.google.cloud.tools.jib.registry.credentials.CredentialRetrievalException;
 import com.redhat.hacbs.artifactcache.services.RepositoryClient;
 import com.redhat.hacbs.artifactcache.services.client.ShaUtil;
 
@@ -43,19 +44,28 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
 
     private final String registry;
     private final String owner;
-    private final Optional<String> token;
     private final Optional<String> prependHashedGav;
+    private final String repository;
     private final boolean enableHttpAndInsecureFailover;
     private final Path cacheRoot;
+    private final Credential credential;
 
-    public OCIRegistryRepositoryClient(String registry, String owner, Optional<String> token, Optional<String> prependHashedGav,
+    public OCIRegistryRepositoryClient(String registry, String owner, String repository, Optional<String> token,Optional<String> prependHashedGav,
             boolean enableHttpAndInsecureFailover) {
+        this.prependHashedGav = prependHashedGav;
         this.registry = registry;
         this.owner = owner;
-        this.token = token;
-        this.prependHashedGav = prependHashedGav;
+        this.repository = repository;
         this.enableHttpAndInsecureFailover = enableHttpAndInsecureFailover;
-
+        if (token.isPresent()) {
+            var decoded = new String(Base64.getDecoder().decode(token.get()), StandardCharsets.UTF_8);
+            int pos = decoded.indexOf(":");
+            var username = decoded.substring(0, pos);
+            var password = decoded.substring(pos + 1);
+            credential = Credential.from(username, password);
+        } else {
+            credential = null;
+        }
         Config config = ConfigProvider.getConfig();
         Path cachePath = config.getValue("cache-path", Path.class);
         try {
@@ -79,7 +89,7 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
             hashedGav = hashedGav.substring(0, 128);
         }
 
-        RegistryClient registryClient = getRegistryClient(group, hashedGav);
+        RegistryClient registryClient = getRegistryClient(hashedGav);
 
         try {
 
@@ -104,7 +114,20 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
                     Log.warnf("Key %s:%s:%s not found", group, artifact, version);
                 }
             }
+        } catch (RegistryUnauthorizedException ioe) {
+            Log.errorf("Failed to authenticate against registry %s/%s/%s", registry, owner, repository);
+            return Optional.empty();
         } catch (IOException | RegistryException ioe) {
+            Throwable cause = ioe.getCause();
+            while (cause != null) {
+                if (cause instanceof ResponseException) {
+                    ResponseException e = (ResponseException) cause;
+                    if (e.getStatusCode() == 404) {
+                        return Optional.empty();
+                    }
+                }
+                cause = cause.getCause();
+            }
             throw new RuntimeException(ioe);
         } finally {
             Log.debugf("OCI registry request to %s:%s:%s took %sms", group, artifact, version,
@@ -119,39 +142,17 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
         return Optional.empty();
     }
 
-    private RegistryClient getRegistryClient(String group, String hashedGav) {
+    private RegistryClient getRegistryClient(String hashedGav) {
 
         RegistryClient.Factory factory = RegistryClient.factory(new EventHandlers.Builder().build(), registry,
-                owner + File.separator + group,
+                owner + "/" + repository,
                 new FailoverHttpClient(enableHttpAndInsecureFailover, false, s -> Log.info(s.getMessage())));
 
-        Optional<Credential> credential = getCredential(group, hashedGav);
-
-        if (credential.isPresent()) {
-            factory.setCredential(credential.get());
-        } else {
-            Log.debugf("No credential found for %s, proceeding without any", registry);
+        if (credential != null) {
+            factory.setCredential(credential);
         }
 
-        RegistryClient registryClient = factory.newRegistryClient();
-
-        return registryClient;
-    }
-
-    private Optional<Credential> getCredential(String group, String hashedGav) {
-        // If there is token configured for this, use that, else fallback to .docker/config.json
-        if (token.isPresent()) {
-            return Optional.of(Credential.from(Credential.OAUTH2_TOKEN_USER_NAME, token.get()));
-        } else {
-            ImageReference imageReference = ImageReference.of(registry, owner + File.separator + group, hashedGav);
-            CredentialRetrieverFactory credentialRetrieverFactory = CredentialRetrieverFactory.forImage(imageReference,
-                    (s) -> Log.debug(s.getMessage()));
-            try {
-                return credentialRetrieverFactory.dockerConfig().retrieve();
-            } catch (CredentialRetrievalException cre) {
-                throw new RuntimeException(cre);
-            }
-        }
+        return factory.newRegistryClient();
     }
 
     private Optional<Path> getLocalCachePath(RegistryClient registryClient, ManifestTemplate manifest, String digestHash)
