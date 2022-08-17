@@ -52,25 +52,27 @@ public class OCIClient implements Closeable {
             if (theToken != null) {
                 get.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + theToken);
             }
-            var result = underlying.execute(get);
-            if (result.getStatusLine().getStatusCode() == 200) {
-                return objectMapper.reader().createParser(result.getEntity().getContent()).readValueAs(DiscoveryResponse.class)
-                        .getTags();
-            } else if (result.getStatusLine().getStatusCode() == 401) {
-                //token may have expired
-                if (!refreshDone && theToken != null) {
-                    synchronized (this) {
-                        pullToken = null;
+            try (var result = underlying.execute(get)) {
+                if (result.getStatusLine().getStatusCode() == 200) {
+                    return objectMapper.reader().createParser(result.getEntity().getContent())
+                            .readValueAs(DiscoveryResponse.class)
+                            .getTags();
+                } else if (result.getStatusLine().getStatusCode() == 401) {
+                    //token may have expired
+                    if (!refreshDone && theToken != null) {
+                        synchronized (this) {
+                            pullToken = null;
+                        }
+                        doAuth();
+                        return listTagsInternal(true);
                     }
-                    doAuth();
-                    return listTagsInternal(true);
+                    throw new AuthenticationFailedException("Authentication failed "
+                            + new String(result.getEntity().getContent().readAllBytes(), StandardCharsets.UTF_8));
+                } else {
+                    throw new RuntimeException("Invalid response code " + result.getStatusLine().getStatusCode() + " "
+                            + new String(result.getEntity().getContent().readAllBytes(), StandardCharsets.UTF_8) + " "
+                            + Arrays.toString(result.getAllHeaders()));
                 }
-                throw new AuthenticationFailedException("Authentication failed "
-                        + new String(result.getEntity().getContent().readAllBytes(), StandardCharsets.UTF_8));
-            } else {
-                throw new RuntimeException("Invalid response code " + result.getStatusLine().getStatusCode() + " "
-                        + new String(result.getEntity().getContent().readAllBytes(), StandardCharsets.UTF_8) + " "
-                        + Arrays.toString(result.getAllHeaders()));
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -89,14 +91,15 @@ public class OCIClient implements Closeable {
                             "http" + (allowInsecure ? "" : "s") + "://" + host + "/v2/auth?service=" + host + "&scope="
                                     + "repository:" + repository + ":pull");
                     get.addHeader(HttpHeaders.AUTHORIZATION, "Basic " + basicAuthToken);
-                    var result = underlying.execute(get);
-                    if (result.getStatusLine().getStatusCode() == 200) {
-                        return pullToken = objectMapper.reader().createParser(result.getEntity().getContent())
-                                .readValueAs(TokenResponse.class)
-                                .getToken();
-                    } else {
-                        throw new AuthenticationException("Invalid response code " + result.getStatusLine().getStatusCode()
-                                + " " + new String(result.getEntity().getContent().readAllBytes(), StandardCharsets.UTF_8));
+                    try (var result = underlying.execute(get)) {
+                        if (result.getStatusLine().getStatusCode() == 200) {
+                            return pullToken = objectMapper.reader().createParser(result.getEntity().getContent())
+                                    .readValueAs(TokenResponse.class)
+                                    .getToken();
+                        } else {
+                            throw new AuthenticationException("Invalid response code " + result.getStatusLine().getStatusCode()
+                                    + " " + new String(result.getEntity().getContent().readAllBytes(), StandardCharsets.UTF_8));
+                        }
                     }
                 }
                 return pullToken;

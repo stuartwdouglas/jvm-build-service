@@ -68,7 +68,8 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
 
     private final Set<String> knownTags = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
-    public OCIRegistryRepositoryClient(String registry, String owner, String repository, Optional<String> token,Optional<String> prependHashedGav,
+    public OCIRegistryRepositoryClient(String registry, String owner, String repository, Optional<String> token,
+            Optional<String> prependHashedGav,
             boolean enableHttpAndInsecureFailover) {
         this.prependHashedGav = prependHashedGav;
         this.registry = registry;
@@ -107,6 +108,7 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
                 || (buildStartTime != null && buildStartTime > lastRefresh && buildStartTime < time)) {
             refreshKnownHashes();
         }
+        group = group.replace("/", ".");
         String groupPath = group.replace(DOT, File.separator);
         String hashedGav = ShaUtil.sha256sum(group, artifact, version);
         if (prependHashedGav.isPresent()) {

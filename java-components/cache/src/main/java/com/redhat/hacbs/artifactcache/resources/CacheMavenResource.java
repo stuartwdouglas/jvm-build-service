@@ -8,6 +8,7 @@ import javax.ws.rs.HeaderParam;
 import javax.ws.rs.NotFoundException;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
 
 import com.redhat.hacbs.artifactcache.services.LocalCache;
@@ -39,6 +40,9 @@ public class CacheMavenResource {
             if (result.get().getMetadata().containsKey("maven-repo")) {
                 builder.header("X-maven-repo", result.get().getMetadata().get("maven-repo"))
                         .build();
+            }
+            if (result.get().getSize() > 0) {
+                builder.header(HttpHeaders.CONTENT_LENGTH, result.get().getSize());
             }
             return builder.build();
         }

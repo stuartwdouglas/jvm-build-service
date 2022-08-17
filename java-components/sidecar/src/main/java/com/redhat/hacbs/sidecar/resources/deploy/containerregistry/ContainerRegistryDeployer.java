@@ -202,6 +202,9 @@ public class ContainerRegistryDeployer implements Deployer {
     }
 
     private Optional<Gav> getGav(String entryName) {
+        if (entryName.startsWith("./")) {
+            entryName = entryName.substring(2);
+        }
         if (entryName.endsWith(DOT_JAR) || entryName.endsWith(DOT_POM)) {
 
             List<String> pathParts = List.of(entryName.split(SLASH));

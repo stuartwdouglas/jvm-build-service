@@ -1,17 +1,5 @@
 package com.redhat.hacbs.artifactcache.services;
 
-import com.redhat.hacbs.artifactcache.services.client.maven.MavenClient;
-import com.redhat.hacbs.artifactcache.services.client.ociregistry.OCIRegistryRepositoryClient;
-import com.redhat.hacbs.artifactcache.services.client.s3.S3RepositoryClient;
-import io.quarkus.logging.Log;
-import org.eclipse.microprofile.config.Config;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
-
-import javax.enterprise.inject.Produces;
-import javax.inject.Inject;
-import javax.inject.Singleton;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -20,6 +8,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+
+import javax.enterprise.inject.Produces;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+
+import org.eclipse.microprofile.config.Config;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+
+import com.redhat.hacbs.artifactcache.services.client.maven.MavenClient;
+import com.redhat.hacbs.artifactcache.services.client.ociregistry.OCIRegistryRepositoryClient;
+import com.redhat.hacbs.artifactcache.services.client.s3.S3RepositoryClient;
+
+import io.quarkus.logging.Log;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 
 /**
  * Class that consumes the repository config and creates the runtime representation of the repositories
@@ -47,7 +50,7 @@ class BuildPolicyManager {
     @Produces
     @Singleton
     Map<String, BuildPolicy> createBuildPolicies(@ConfigProperty(name = "build-policies") Set<String> buildPolicies,
-                                                 Config config) {
+            Config config) {
 
         Map<String, BuildPolicy> ret = new HashMap<>();
         Map<String, Repository> remoteStores = new HashMap<>();
@@ -63,11 +66,12 @@ class BuildPolicyManager {
             var prependTag = config.getOptionalValue("registry" + PREPEND_TAG, String.class);
 
             remoteStores.put("rebuilt",
-                new Repository("rebuilt",
-                    "http" + (insecure ? "" : "s") + "://" + host + ":" + port + "/" + registryOwner.get() + "/"
-                        + repository,
-                    RepositoryType.OCI_REGISTRY,
-                    new OCIRegistryRepositoryClient(host, registryOwner.get(), repository, prependTag, token, insecure)));
+                    new Repository("rebuilt",
+                            "http" + (insecure ? "" : "s") + "://" + host + ":" + port + "/" + registryOwner.get() + "/"
+                                    + repository,
+                            RepositoryType.OCI_REGISTRY,
+                            new OCIRegistryRepositoryClient(host, registryOwner.get(), repository, token, prependTag,
+                                    insecure)));
         }
 
         for (String policy : buildPolicies) {
@@ -121,7 +125,7 @@ class BuildPolicyManager {
                 String[] prefixes = config.getOptionalValue(STORE + repo + PREFIXES, String.class).orElse("default").split(",");
                 RepositoryClient client = new S3RepositoryClient(s3Client, Arrays.asList(prefixes), bucket.get());
                 Log.infof("S3 repository %s added with bucket %s and prefixes %s", repo, bucket.get(),
-                    Arrays.toString(prefixes));
+                        Arrays.toString(prefixes));
                 return new Repository(repo, "s3://" + bucket + Arrays.toString(prefixes), RepositoryType.S3, client);
             } else {
                 Log.warnf("S3 Repository %s was listed but has no bucket configured and will be ignored", repo);
@@ -134,11 +138,11 @@ class BuildPolicyManager {
             String repository = config.getOptionalValue(STORE + repo + REPOSITORY, String.class).orElse(ARTIFACT_DEPLOYMENTS);
             if (owner.isPresent()) {
                 boolean enableHttpAndInsecureFailover = config.getOptionalValue(STORE + repo + INSECURE, Boolean.class)
-                    .orElse(Boolean.FALSE);
+                        .orElse(Boolean.FALSE);
                 String u = owner.get();
 
                 RepositoryClient client = new OCIRegistryRepositoryClient(registry, u, repository, token, prependTag,
-                    enableHttpAndInsecureFailover);
+                        enableHttpAndInsecureFailover);
                 Log.infof("OCI registry %s added with owner %s", registry, u);
                 return new Repository(repo, "oci://" + registry + "/" + u, RepositoryType.OCI_REGISTRY, client);
             } else {
