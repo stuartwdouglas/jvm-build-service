@@ -59,6 +59,8 @@ public class MavenProxyResource {
 
     final Map<Pattern, String> gavRelocations;
 
+    final long startupTime;
+
     public MavenProxyResource(
             @ConfigProperty(name = "build-policy") String buildPolicy,
             @ConfigProperty(name = "add-tracking-data-to-artifacts", defaultValue = "true") boolean addTrackingDataToArtifacts,
@@ -73,6 +75,9 @@ public class MavenProxyResource {
         this.retries = retries;
         this.backoff = backoff;
         this.cacheUrl = cacheUrl;
+        //we send the startup time to the cache, so it knows if it may need
+        //to refresh the rebuilt artifacts list
+        this.startupTime = System.currentTimeMillis();
 
         // Get the relocation patterns
         Map<Pattern, String> m = new HashMap<>();
@@ -144,6 +149,7 @@ public class MavenProxyResource {
             HttpGet httpGet = new HttpGet(
                     cacheUrl + SLASH + MAVEN2 + SLASH + group + SLASH + artifact + SLASH + version + SLASH + target);
             httpGet.addHeader(X_BUILD_POLICY, buildPolicy);
+            httpGet.addHeader(X_BUILD_START, Long.toString(startupTime));
 
             var response = remoteClient.execute(httpGet);
             try {
@@ -282,6 +288,7 @@ public class MavenProxyResource {
     private static final String DOT_POM_DOT_SHA1 = DOT_POM + DOT_SHA1;
     private static final String X_MAVEN_REPO = "X-maven-repo";
     private static final String X_BUILD_POLICY = "X-build-policy";
+    private static final String X_BUILD_START = "X-build-start";
     private static final String TEMP_JAR = "temp-jar";
     private static final String TEMP_MODIFIED_JAR = "temp-modified-jar";
     private static final String REBUILT = "rebuilt";

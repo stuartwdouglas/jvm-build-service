@@ -11,14 +11,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
 
 import org.apache.commons.compress.archivers.ArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 
@@ -37,6 +43,7 @@ import com.google.cloud.tools.jib.registry.ManifestAndDigest;
 import com.google.cloud.tools.jib.registry.RegistryClient;
 import com.redhat.hacbs.artifactcache.services.RepositoryClient;
 import com.redhat.hacbs.artifactcache.services.client.ShaUtil;
+import com.redhat.hacbs.ociclient.OCIClient;
 
 import io.quarkus.logging.Log;
 
@@ -50,6 +57,17 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
     private final Path cacheRoot;
     private final Credential credential;
 
+    /**
+     * used for discovery at this point
+     */
+    private final OCIClient ociClient;
+
+    private static final long REFRESH_INTERVAL = TimeUnit.MINUTES.toMillis(1);
+
+    private volatile long lastRefresh;
+
+    private final Set<String> knownTags = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
     public OCIRegistryRepositoryClient(String registry, String owner, String repository, Optional<String> token,Optional<String> prependHashedGav,
             boolean enableHttpAndInsecureFailover) {
         this.prependHashedGav = prependHashedGav;
@@ -57,6 +75,9 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
         this.owner = owner;
         this.repository = repository;
         this.enableHttpAndInsecureFailover = enableHttpAndInsecureFailover;
+        var apacheClient = HttpClientBuilder.create().setConnectionManager(new PoolingHttpClientConnectionManager()).build();
+        ociClient = new OCIClient(apacheClient, registry, owner + "/" + repository, token.orElse(null),
+                enableHttpAndInsecureFailover);
         if (token.isPresent()) {
             var decoded = new String(Base64.getDecoder().decode(token.get()), StandardCharsets.UTF_8);
             int pos = decoded.indexOf(":");
@@ -78,8 +99,14 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
 
     @Override
     public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version,
-            String target) {
+            String target, Long buildStartTime) {
         long time = System.currentTimeMillis();
+        //we always refresh if the build is newer than the refresh time
+        //unless the clock is clearly skewed (i.e. start time is in the future)
+        if (time > lastRefresh + REFRESH_INTERVAL
+                || (buildStartTime != null && buildStartTime > lastRefresh && buildStartTime < time)) {
+            refreshKnownHashes();
+        }
         String groupPath = group.replace(DOT, File.separator);
         String hashedGav = ShaUtil.sha256sum(group, artifact, version);
         if (prependHashedGav.isPresent()) {
@@ -89,10 +116,12 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
             hashedGav = hashedGav.substring(0, 128);
         }
 
-        RegistryClient registryClient = getRegistryClient(hashedGav);
+        if (!knownTags.contains(hashedGav)) {
+            return Optional.empty();
+        }
+        RegistryClient registryClient = getRegistryClient();
 
         try {
-
             ManifestAndDigest<ManifestTemplate> manifestAndDigest = registryClient.pullManifest(hashedGav,
                     ManifestTemplate.class);
 
@@ -137,13 +166,20 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
         return Optional.empty();
     }
 
+    private synchronized void refreshKnownHashes() {
+        long time = System.currentTimeMillis();
+        if (time > lastRefresh + REFRESH_INTERVAL) {
+            knownTags.addAll(ociClient.listTags());
+            lastRefresh = System.currentTimeMillis();
+        }
+    }
+
     @Override
     public Optional<RepositoryResult> getMetadataFile(String buildPolicy, String group, String target) {
         return Optional.empty();
     }
 
-    private RegistryClient getRegistryClient(String hashedGav) {
-
+    private RegistryClient getRegistryClient() {
         RegistryClient.Factory factory = RegistryClient.factory(new EventHandlers.Builder().build(), registry,
                 owner + "/" + repository,
                 new FailoverHttpClient(enableHttpAndInsecureFailover, false, s -> Log.info(s.getMessage())));
@@ -168,7 +204,6 @@ public class OCIRegistryRepositoryClient implements RepositoryClient {
     private Optional<Path> pullFromRemoteAndCache(RegistryClient registryClient, ManifestTemplate manifest, String digestHash,
             Path digestHashPath)
             throws IOException {
-
         String manifestMediaType = manifest.getManifestMediaType();
 
         if (OCI_MEDIA_TYPE.equalsIgnoreCase(manifestMediaType)) {

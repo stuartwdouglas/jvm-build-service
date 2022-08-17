@@ -61,7 +61,7 @@ public class ContainerRegistryStorageTest {
 
         Optional<RepositoryClient.RepositoryResult> artifactFile = localCache.getArtifactFile(POLICY, GROUP, "does-not-exist",
                 VERSION,
-                "does-not-exist");
+                "does-not-exist", null);
         Assertions.assertFalse(artifactFile.isPresent());
     }
 
@@ -72,7 +72,7 @@ public class ContainerRegistryStorageTest {
 
         Optional<RepositoryClient.RepositoryResult> artifactFile = localCache.getArtifactFile(POLICY, GROUP, artifact,
                 VERSION,
-                file);
+                file, null);
 
         if (artifactFile.isPresent()) {
 
@@ -86,7 +86,7 @@ public class ContainerRegistryStorageTest {
             Assertions.assertTrue(Files.exists(containerRegistryCacheRoot));
 
             // these files should still have been cached
-            artifactFile = localCache.getArtifactFile(POLICY, GROUP, artifact, VERSION, file);
+            artifactFile = localCache.getArtifactFile(POLICY, GROUP, artifact, VERSION, file, null);
             repositoryResult = artifactFile.orElseThrow();
             Assertions.assertNotNull(repositoryResult.data);
 

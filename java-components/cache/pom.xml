@@ -23,6 +23,10 @@
             <artifactId>quarkus-resteasy-reactive</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.redhat.hacbs</groupId>
+            <artifactId>hacbs-oci-client</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-arc</artifactId>
         </dependency>

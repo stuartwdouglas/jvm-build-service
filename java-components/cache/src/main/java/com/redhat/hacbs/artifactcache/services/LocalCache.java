@@ -55,11 +55,12 @@ public class LocalCache implements RepositoryClient {
 
     @Override
     public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version,
-            String target) {
+            String target, Long buildStartTime) {
         //TODO: we don't really care about the policy when using standard maven repositories
         String targetFile = group.replaceAll("\\.", File.separator) + File.separator + artifact
                 + File.separator + version + File.separator + target;
-        return handleFile(buildPolicy, targetFile, (c) -> c.getArtifactFile(buildPolicy, group, artifact, version, target));
+        return handleFile(buildPolicy, targetFile,
+                (c) -> c.getArtifactFile(buildPolicy, group, artifact, version, target, buildStartTime));
     }
 
     private Optional<RepositoryResult> handleFile(String buildPolicy, String gavBasedTarget,

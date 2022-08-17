@@ -28,11 +28,12 @@ public class CacheMavenResource {
     @GET
     @Path("{group:.*?}/{artifact}/{version}/{target}")
     public Response get(@DefaultValue("default") @HeaderParam("X-build-policy") String buildPolicy,
+            @HeaderParam("X-build-start") Long buildStartTime,
             @PathParam("group") String group,
             @PathParam("artifact") String artifact,
             @PathParam("version") String version, @PathParam("target") String target) throws Exception {
         Log.debugf("Retrieving artifact %s/%s/%s/%s", group, artifact, version, target);
-        var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target);
+        var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target, buildStartTime);
         if (result.isPresent()) {
             var builder = Response.ok(result.get().getData());
             if (result.get().getMetadata().containsKey("maven-repo")) {
