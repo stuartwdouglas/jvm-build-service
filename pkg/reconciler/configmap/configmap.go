@@ -6,6 +6,7 @@ package configmap
 import (
 	"context"
 	"fmt"
+	v13 "k8s.io/api/rbac/v1"
 	"regexp"
 	"sort"
 	"strconv"
@@ -155,6 +156,7 @@ func (r *ReconcileConfigMap) setupCache(ctx context.Context, request reconcile.R
 			return err
 		}
 	}
+	cache.Spec.Template.Spec.ServiceAccountName = CacheDeploymentName
 
 	//and setup the service
 	err = r.client.Get(ctx, types.NamespacedName{Name: CacheDeploymentName, Namespace: configMap.Namespace}, &corev1.Service{})
@@ -183,6 +185,39 @@ func (r *ReconcileConfigMap) setupCache(ctx context.Context, request reconcile.R
 			}
 		}
 	}
+	//setup the service account
+
+	sa := corev1.ServiceAccount{}
+	saName := types.NamespacedName{Namespace: request.Namespace, Name: CacheDeploymentName}
+	err = r.client.Get(ctx, saName, &sa)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			sa := corev1.ServiceAccount{}
+			sa.Name = CacheDeploymentName
+			sa.Namespace = request.Namespace
+			err := r.client.Create(ctx, &sa)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	cb := v13.RoleBinding{}
+	cbName := types.NamespacedName{Namespace: request.Namespace, Name: CacheDeploymentName}
+	err = r.client.Get(ctx, cbName, &cb)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			cb := v13.RoleBinding{}
+			cb.Name = CacheDeploymentName
+			cb.Namespace = request.Namespace
+			cb.RoleRef = v13.RoleRef{Kind: "ClusterRole", Name: "hacbs-jvm-cache", APIGroup: "rbac.authorization.k8s.io"}
+			cb.Subjects = []v13.Subject{{Kind: "ServiceAccount", Name: CacheDeploymentName, Namespace: request.Namespace}}
+			err := r.client.Create(ctx, &cb)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	type Repo struct {
 		name     string
 		position int

@@ -16,6 +16,7 @@ import javax.inject.Singleton;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
+import com.redhat.hacbs.artifactcache.artifactwatch.RebuiltArtifacts;
 import com.redhat.hacbs.artifactcache.services.client.maven.MavenClient;
 import com.redhat.hacbs.artifactcache.services.client.ociregistry.OCIRegistryRepositoryClient;
 import com.redhat.hacbs.artifactcache.services.client.s3.S3RepositoryClient;
@@ -47,6 +48,9 @@ class BuildPolicyManager {
     @Inject
     S3Client s3Client;
 
+    @Inject
+    RebuiltArtifacts rebuiltArtifacts;
+
     @Produces
     @Singleton
     Map<String, BuildPolicy> createBuildPolicies(@ConfigProperty(name = "build-policies") Set<String> buildPolicies,
@@ -71,7 +75,7 @@ class BuildPolicyManager {
                                     + repository,
                             RepositoryType.OCI_REGISTRY,
                             new OCIRegistryRepositoryClient(host, registryOwner.get(), repository, token, prependTag,
-                                    insecure)));
+                                    insecure, rebuiltArtifacts)));
         }
 
         for (String policy : buildPolicies) {
@@ -142,7 +146,7 @@ class BuildPolicyManager {
                 String u = owner.get();
 
                 RepositoryClient client = new OCIRegistryRepositoryClient(registry, u, repository, token, prependTag,
-                        enableHttpAndInsecureFailover);
+                        enableHttpAndInsecureFailover, rebuiltArtifacts);
                 Log.infof("OCI registry %s added with owner %s", registry, u);
                 return new Repository(repo, "oci://" + registry + "/" + u, RepositoryType.OCI_REGISTRY, client);
             } else {
