@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/redhat-appstudio/jvm-build-service/pkg/reconciler/configmap"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"os"
 	"strings"
 	"time"
@@ -371,7 +373,7 @@ func (r *ReconcileDependencyBuild) handleStateSubmitBuild(ctx context.Context, d
 
 }
 
-func (r *ReconcileDependencyBuild) decodeBytesToPipelineRun(bytes []byte) (*pipelinev1beta1.TaskRun, error) {
+func (r *ReconcileDependencyBuild) decodeBytesToTaskRun(bytes []byte) (*pipelinev1beta1.TaskRun, error) {
 	decodingScheme := runtime.NewScheme()
 	utilruntime.Must(pipelinev1beta1.AddToScheme(decodingScheme))
 	decoderCodecFactory := serializer.NewCodecFactory(decodingScheme)
@@ -392,17 +394,17 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, db *
 	pr.Labels = map[string]string{artifactbuild.DependencyBuildIdLabel: db.Labels[artifactbuild.DependencyBuildIdLabel], artifactbuild.PipelineRunLabel: "", PipelineType: PipelineTypeBuild}
 
 	image := os.Getenv("JVM_BUILD_SERVICE_SIDECAR_IMAGE")
-	pipelineRunBytes := []byte{}
+	taskRunBytes := []byte{}
 	switch {
 	case db.Status.CurrentBuildRecipe.Maven:
-		pipelineRunBytes = []byte(maven)
+		taskRunBytes = []byte(maven)
 	case db.Status.CurrentBuildRecipe.Gradle:
-		pipelineRunBytes = []byte(gradle)
+		taskRunBytes = []byte(gradle)
 	default:
 		r.eventRecorder.Eventf(db, v1.EventTypeWarning, "MissingRecipeType", "recipe for DependencyBuild %s:%s neither maven or gradle", db.Namespace, db.Name)
 		return reconcile.Result{}, fmt.Errorf("recipe for DependencyBuild %s:%s neither maven or gradle", db.Namespace, db.Name)
 	}
-	taskRun, err := r.decodeBytesToPipelineRun(pipelineRunBytes)
+	taskRun, err := r.decodeBytesToTaskRun(taskRunBytes)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -432,22 +434,12 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, db *
 			pr.Spec.PipelineSpec.Tasks[0].Params = append(pr.Spec.PipelineSpec.Tasks[0].Params, pipelinev1beta1.Param{Name: i.Name, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeArray, ArrayVal: db.Status.CurrentBuildRecipe.CommandLine}})
 		}
 	}
-	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Image = image
-	if !strings.HasPrefix(image, "quay.io/redhat-appstudio") {
-		// work around for developer mode while we are hard coding the task spec in the controller
-		pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].ImagePullPolicy = v1.PullAlways
-	}
+	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars = []pipelinev1beta1.Sidecar{createSidecar(image, db.Namespace)}
 	pr.Spec.ServiceAccountName = "pipeline"
 	//TODO: this is all going away, but for now we have lost the ability to confiugure this via YAML
 	//It's not worth adding a heap of env var overrides for something that will likely be gone next week
 	//the actual solution will involve loading deployment config from a ConfigMap
 	pr.Spec.ServiceAccountName = "pipeline"
-	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_REST_CLIENT_CACHE_SERVICE_URL", Value: "http://" + configmap.CacheDeploymentName + "." + db.Namespace + ".svc.cluster.local"})
-	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_S3_ENDPOINT_OVERRIDE", Value: "http://" + configmap.LocalstackDeploymentName + "." + db.Namespace + ".svc.cluster.local:4572"})
-	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_S3_AWS_REGION", Value: "us-east-1"})
-	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_S3_AWS_CREDENTIALS_TYPE", Value: "static"})
-	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_ACCESS_KEY_ID", Value: "accesskey"})
-	pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env = append(pr.Spec.PipelineSpec.Tasks[0].TaskSpec.Sidecars[0].Env, v1.EnvVar{Name: "QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_SECRET_ACCESS_KEY", Value: "secretkey"})
 	pr.Spec.Params = []pipelinev1beta1.Param{
 		{Name: PipelineScmUrl, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Spec.ScmInfo.SCMURL}},
 		{Name: PipelineScmTag, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Spec.ScmInfo.Tag}},
@@ -459,6 +451,8 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, db *
 		{Name: PipelineToolVersion, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Status.CurrentBuildRecipe.ToolVersion}},
 		{Name: PipelineJavaVersion, Value: pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: db.Status.CurrentBuildRecipe.JavaVersion}},
 	}
+	tmp := false
+	pr.Spec.TaskRunSpecs = []pipelinev1beta1.PipelineTaskRunSpec{{PipelineTaskName: artifactbuild.TaskName, TaskPodTemplate: &pipelinev1beta1.PodTemplate{AutomountServiceAccountToken: &tmp}}}
 	pr.Spec.PipelineSpec.Workspaces = []pipelinev1beta1.PipelineWorkspaceDeclaration{{Name: "source"}, {Name: "maven-settings"}}
 	pr.Spec.Workspaces = []pipelinev1beta1.WorkspaceBinding{
 		{Name: "maven-settings", EmptyDir: &v1.EmptyDirVolumeSource{}},
@@ -704,4 +698,52 @@ func createLookupBuildInfoPipeline(build *v1alpha1.DependencyBuildSpec, config m
 			},
 		},
 	}
+}
+
+func createSidecar(image string, namespace string) pipelinev1beta1.Sidecar {
+	falseBool := false
+
+	sidecar := pipelinev1beta1.Sidecar{
+		Container: v1.Container{
+			Name:  "proxy",
+			Image: image,
+			Env: []v1.EnvVar{
+				{Name: "QUARKUS_LOG_FILE_ENABLE", Value: "true"},
+				{Name: "QUARKUS_LOG_FILE_PATH", Value: "$(workspaces.maven-settings.path)/sidecar.log"},
+				{Name: "IGNORED_ARTIFACTS", Value: "$(params.IGNORED_ARTIFACTS)"},
+				{Name: "QUARKUS_VERTX_EVENT_LOOPS_POOL_SIZE", Value: "2"},
+				{Name: "QUARKUS_THREAD_POOL_MAX_THREADS", Value: "4"},
+				{Name: "QUARKUS_REST_CLIENT_CACHE_SERVICE_URL", Value: "http://" + configmap.CacheDeploymentName + "." + namespace + ".svc.cluster.local"},
+				{Name: "QUARKUS_S3_ENDPOINT_OVERRIDE", Value: "http://" + configmap.LocalstackDeploymentName + "." + namespace + ".svc.cluster.local:4572"},
+				{Name: "QUARKUS_S3_AWS_REGION", Value: "us-east-1"},
+				{Name: "QUARKUS_S3_AWS_CREDENTIALS_TYPE", Value: "static"},
+				{Name: "QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_ACCESS_KEY_ID", Value: "accesskey"},
+				{Name: "QUARKUS_S3_AWS_CREDENTIALS_STATIC_PROVIDER_SECRET_ACCESS_KEY", Value: "secretkey"},
+				{Name: "REGISTRY_TOKEN",
+					ValueFrom: &v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: "registry.token", LocalObjectReference: v1.LocalObjectReference{Name: "jvm-build-secrets"}, Optional: &falseBool}},
+				},
+			},
+			VolumeMounts: []v1.VolumeMount{
+				{Name: "$(workspaces.maven-settings.volume)", MountPath: "$(workspaces.maven-settings.volume)"},
+				{Name: "$(workspaces.config.volume)", MountPath: "$(workspaces.config.volume)"}},
+			LivenessProbe: &v1.Probe{
+				ProbeHandler:        v1.ProbeHandler{HTTPGet: &v1.HTTPGetAction{Path: "/q/health/live", Port: intstr.IntOrString{IntVal: 2000}}},
+				InitialDelaySeconds: 1,
+				PeriodSeconds:       3,
+			},
+			ReadinessProbe: &v1.Probe{
+				ProbeHandler:        v1.ProbeHandler{HTTPGet: &v1.HTTPGetAction{Path: "/q/health/ready", Port: intstr.IntOrString{IntVal: 2000}}},
+				InitialDelaySeconds: 1,
+				PeriodSeconds:       3,
+			},
+			Resources: v1.ResourceRequirements{
+				Requests: map[v1.ResourceName]resource.Quantity{"memory": resource.MustParse("128Mi"), "cpu": resource.MustParse("10m")},
+				Limits:   map[v1.ResourceName]resource.Quantity{"memory": resource.MustParse("8Gi"), "cpu": resource.MustParse("2")}},
+		}}
+
+	if !strings.HasPrefix(image, "quay.io/redhat-appstudio") {
+		// work around for developer mode while we are hard coding the task spec in the controller
+		sidecar.ImagePullPolicy = v1.PullAlways
+	}
+	return sidecar
 }
