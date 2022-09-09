@@ -1,29 +1,5 @@
 package com.redhat.hacbs.artifactcache.oldsidecar;
 
-import com.redhat.hacbs.classfile.tracker.ClassFileTracker;
-import com.redhat.hacbs.classfile.tracker.TrackingData;
-import com.redhat.hacbs.sidecar.resources.relocation.Gav;
-import com.redhat.hacbs.sidecar.resources.relocation.RelocationCreator;
-import io.quarkus.logging.Log;
-import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
-import io.smallrye.common.annotation.Blocking;
-import io.vertx.core.AsyncResult;
-import io.vertx.core.Handler;
-import org.apache.http.Header;
-import org.apache.http.HttpHeaders;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
-
-import javax.annotation.PreDestroy;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.ws.rs.GET;
-import javax.ws.rs.NotFoundException;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.core.Response;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -35,6 +11,33 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipException;
+
+import javax.annotation.PreDestroy;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import javax.ws.rs.GET;
+import javax.ws.rs.NotFoundException;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.core.Response;
+
+import org.apache.http.Header;
+import org.apache.http.HttpHeaders;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+
+import com.redhat.hacbs.classfile.tracker.ClassFileTracker;
+import com.redhat.hacbs.classfile.tracker.TrackingData;
+import com.redhat.hacbs.sidecar.resources.relocation.Gav;
+import com.redhat.hacbs.sidecar.resources.relocation.RelocationCreator;
+
+import io.quarkus.logging.Log;
+import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
+import io.smallrye.common.annotation.Blocking;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Handler;
 
 @Path("/maven2")
 @Blocking

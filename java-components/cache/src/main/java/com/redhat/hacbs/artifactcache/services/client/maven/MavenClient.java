@@ -49,7 +49,7 @@ public class MavenClient implements RepositoryClient {
 
     @Override
     public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version,
-            String target, Long buildStartTime) {
+            String target) {
         Log.debugf("Retrieving artifact %s/%s/%s/%s from repo %s at %s", group, artifact, version, target, name, uri);
         String targetUri = uri + "/" + group + "/" + artifact + "/" + version + "/" + target;
         return downloadMavenFile(group, artifact, version, target, targetUri);

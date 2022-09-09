@@ -1,8 +1,8 @@
 package com.redhat.hacbs.artifactcache.oldsidecar;
 
-import io.smallrye.config.ConfigMapping;
-
 import java.util.Map;
+
+import io.smallrye.config.ConfigMapping;
 
 @ConfigMapping(prefix = "gav.relocation")
 public interface GavRelocationConfig {

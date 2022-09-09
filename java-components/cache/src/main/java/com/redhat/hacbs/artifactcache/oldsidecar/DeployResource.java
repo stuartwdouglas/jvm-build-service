@@ -1,9 +1,9 @@
 package com.redhat.hacbs.artifactcache.oldsidecar;
 
+import com.redhat.hacbs.artifactcache.deploy.Deployer;
+import com.redhat.hacbs.artifactcache.deploy.DeployerUtil;
 import com.redhat.hacbs.classfile.tracker.ClassFileTracker;
 import com.redhat.hacbs.classfile.tracker.NoCloseInputStream;
-import com.redhat.hacbs.sidecar.resources.deploy.Deployer;
-import com.redhat.hacbs.sidecar.resources.deploy.DeployerUtil;
 import io.quarkus.logging.Log;
 import io.quarkus.runtime.Startup;
 import io.smallrye.common.annotation.Blocking;
@@ -53,9 +53,9 @@ public class DeployResource {
     Set<String> allowedSources;
 
     public DeployResource(BeanManager beanManager,
-            @ConfigProperty(name = "deployer", defaultValue = "S3Deployer") String deployer,
-            @ConfigProperty(name = "ignored-artifacts", defaultValue = "") Optional<Set<String>> doNotDeploy,
-            @ConfigProperty(name = "allowed-sources", defaultValue = "") Optional<Set<String>> allowedSources) {
+                          @ConfigProperty(name = "deployer", defaultValue = "S3Deployer") String deployer,
+                          @ConfigProperty(name = "ignored-artifacts", defaultValue = "") Optional<Set<String>> doNotDeploy,
+                          @ConfigProperty(name = "allowed-sources", defaultValue = "") Optional<Set<String>> allowedSources) {
         this.beanManager = beanManager;
         this.deployer = getDeployer(deployer);
         this.doNotDeploy = doNotDeploy.orElse(Set.of());
@@ -111,26 +111,24 @@ public class DeployResource {
         Set<String> contaminants = new HashSet<>();
         Map<String, Set<String>> contaminatedPaths = new HashMap<>();
         try (TarArchiveInputStream in = new TarArchiveInputStream(
-                new GzipCompressorInputStream(Files.newInputStream(temp)))) {
+            new GzipCompressorInputStream(Files.newInputStream(temp)))) {
             TarArchiveEntry e;
             while ((e = in.getNextTarEntry()) != null) {
                 if (e.getName().endsWith(".jar")) {
                     if (!DeployerUtil.shouldIgnore(doNotDeploy, e.getName())) {
                         Log.debugf("Checking %s for contaminants", e.getName());
                         var info = ClassFileTracker.readTrackingDataFromJar(new NoCloseInputStream(in), e.getName());
-                        if (info != null) {
-                            for (var i : info) {
-                                if (!allowedSources.contains(i.source)) {
-                                    //Set<String> result = new HashSet<>(info.stream().map(a -> a.gav).toList());
-                                    contaminants.add(i.gav);
-                                    int index = e.getName().lastIndexOf("/");
-                                    if (index != -1) {
-                                        contaminatedPaths
-                                                .computeIfAbsent(e.getName().substring(0, index), s -> new HashSet<>())
-                                                .add(i.gav);
-                                    } else {
-                                        contaminatedPaths.computeIfAbsent("", s -> new HashSet<>()).add(i.gav);
-                                    }
+                        for (var i : info) {
+                            if (!allowedSources.contains(i.source)) {
+                                //Set<String> result = new HashSet<>(info.stream().map(a -> a.gav).toList());
+                                contaminants.add(i.gav);
+                                int index = e.getName().lastIndexOf("/");
+                                if (index != -1) {
+                                    contaminatedPaths
+                                        .computeIfAbsent(e.getName().substring(0, index), s -> new HashSet<>())
+                                        .add(i.gav);
+                                } else {
+                                    contaminatedPaths.computeIfAbsent("", s -> new HashSet<>()).add(i.gav);
                                 }
                             }
                         }

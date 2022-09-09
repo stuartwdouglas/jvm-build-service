@@ -19,6 +19,8 @@ import javax.inject.Singleton;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.resteasy.reactive.ClientWebApplicationException;
 
+import com.redhat.hacbs.artifactcache.services.RepositoryClient.RepositoryResult;
+
 import io.quarkus.logging.Log;
 import io.quarkus.runtime.Startup;
 
@@ -27,7 +29,7 @@ import io.quarkus.runtime.Startup;
  */
 @Singleton
 @Startup
-public class LocalCache implements RepositoryClient {
+public class LocalCache {
 
     public static final String CACHEMISS = ".cachemiss";
     public static final String DOWNLOADS = ".downloads";
@@ -54,19 +56,12 @@ public class LocalCache implements RepositoryClient {
         }
     }
 
-    @Override
-    public String getName() {
-        return "local cache";
-    }
-
-    @Override
-    public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version,
-            String target, Long buildStartTime) {
+    public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version, String target, boolean requireUntransformed) {
         //TODO: we don't really care about the policy when using standard maven repositories
         String targetFile = group.replaceAll("\\.", File.separator) + File.separator + artifact
                 + File.separator + version + File.separator + target;
         return handleFile(buildPolicy, targetFile,
-                (c) -> c.getArtifactFile(buildPolicy, group, artifact, version, target, buildStartTime));
+                (c) -> c.getArtifactFile(buildPolicy, group, artifact, version, target));
     }
 
     private Optional<RepositoryResult> handleFile(String buildPolicy, String gavBasedTarget,
@@ -143,7 +138,6 @@ public class LocalCache implements RepositoryClient {
         }
     }
 
-    @Override
     public Optional<RepositoryResult> getMetadataFile(String buildPolicy, String group, String target) {
         String targetFile = buildPolicy + File.separator + group.replaceAll("\\.", File.separator) + File.separator + target;
         return handleFile(buildPolicy, targetFile, (c) -> c.getMetadataFile(buildPolicy, group, target));

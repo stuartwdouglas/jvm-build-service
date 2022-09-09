@@ -8,6 +8,7 @@ import java.util.Comparator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javax.inject.Inject;
 
@@ -63,10 +64,12 @@ public class ContainerRegistryStorageTest {
                 testFile(groupPath, artifactFile.getKey(), artifactFile.getValue(), containerRegistryCacheRoot);
             }
         } finally {
-            Files.walk(containerRegistryCacheRoot)
-                    .sorted(Comparator.reverseOrder())
-                    .map(Path::toFile)
-                    .forEach(File::delete);
+            try (Stream<Path> stream = Files.walk(containerRegistryCacheRoot)) {
+                stream
+                        .sorted(Comparator.reverseOrder())
+                        .map(Path::toFile)
+                        .forEach(File::delete);
+            }
         }
     }
 
@@ -75,7 +78,7 @@ public class ContainerRegistryStorageTest {
 
         Optional<RepositoryClient.RepositoryResult> artifactFile = localCache.getArtifactFile(POLICY, GROUP, "does-not-exist",
                 VERSION,
-                "does-not-exist", null);
+                "does-not-exist", true);
         Assertions.assertFalse(artifactFile.isPresent());
     }
 
@@ -86,7 +89,7 @@ public class ContainerRegistryStorageTest {
 
         Optional<RepositoryClient.RepositoryResult> artifactFile = localCache.getArtifactFile(POLICY, GROUP, artifact,
                 VERSION,
-                file, null);
+                file, true);
 
         if (artifactFile.isPresent()) {
 
@@ -100,7 +103,7 @@ public class ContainerRegistryStorageTest {
             Assertions.assertTrue(Files.exists(containerRegistryCacheRoot));
 
             // these files should still have been cached
-            artifactFile = localCache.getArtifactFile(POLICY, GROUP, artifact, VERSION, file, null);
+            artifactFile = localCache.getArtifactFile(POLICY, GROUP, artifact, VERSION, file, true);
             repositoryResult = artifactFile.orElseThrow();
             Assertions.assertNotNull(repositoryResult.data);
 

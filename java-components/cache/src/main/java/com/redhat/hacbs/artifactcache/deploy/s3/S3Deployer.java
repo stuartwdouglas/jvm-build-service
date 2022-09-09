@@ -1,24 +1,27 @@
 package com.redhat.hacbs.artifactcache.deploy.s3;
 
-import com.redhat.hacbs.artifactcache.deploy.Deployer;
-import com.redhat.hacbs.artifactcache.deploy.DeployerUtil;
-import io.quarkus.logging.Log;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Optional;
+import java.util.Set;
+
+import javax.enterprise.context.ApplicationScoped;
+import javax.inject.Named;
+
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+
+import com.redhat.hacbs.artifactcache.deploy.Deployer;
+import com.redhat.hacbs.artifactcache.deploy.DeployerUtil;
+
+import io.quarkus.logging.Log;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Named;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Optional;
-import java.util.Set;
 
 @ApplicationScoped
 @Named("S3Deployer")

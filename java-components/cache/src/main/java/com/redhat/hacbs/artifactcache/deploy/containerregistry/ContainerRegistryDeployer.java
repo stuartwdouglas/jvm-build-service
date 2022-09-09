@@ -1,24 +1,5 @@
 package com.redhat.hacbs.artifactcache.deploy.containerregistry;
 
-import com.google.cloud.tools.jib.api.CacheDirectoryCreationException;
-import com.google.cloud.tools.jib.api.Containerizer;
-import com.google.cloud.tools.jib.api.InvalidImageReferenceException;
-import com.google.cloud.tools.jib.api.Jib;
-import com.google.cloud.tools.jib.api.JibContainerBuilder;
-import com.google.cloud.tools.jib.api.RegistryException;
-import com.google.cloud.tools.jib.api.RegistryImage;
-import com.google.cloud.tools.jib.api.buildplan.AbsoluteUnixPath;
-import com.google.cloud.tools.jib.api.buildplan.ImageFormat;
-import com.redhat.hacbs.artifactcache.deploy.Deployer;
-import com.redhat.hacbs.artifactcache.deploy.DeployerUtil;
-import io.quarkus.logging.Log;
-import org.apache.commons.compress.archivers.ArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
-
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Named;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -36,6 +17,28 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.zip.GZIPInputStream;
+
+import javax.enterprise.context.ApplicationScoped;
+import javax.inject.Named;
+
+import org.apache.commons.compress.archivers.ArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+
+import com.google.cloud.tools.jib.api.CacheDirectoryCreationException;
+import com.google.cloud.tools.jib.api.Containerizer;
+import com.google.cloud.tools.jib.api.InvalidImageReferenceException;
+import com.google.cloud.tools.jib.api.Jib;
+import com.google.cloud.tools.jib.api.JibContainerBuilder;
+import com.google.cloud.tools.jib.api.RegistryException;
+import com.google.cloud.tools.jib.api.RegistryImage;
+import com.google.cloud.tools.jib.api.buildplan.AbsoluteUnixPath;
+import com.google.cloud.tools.jib.api.buildplan.ImageFormat;
+import com.redhat.hacbs.artifactcache.deploy.Deployer;
+import com.redhat.hacbs.artifactcache.deploy.DeployerUtil;
+
+import io.quarkus.logging.Log;
 
 @ApplicationScoped
 @Named("ContainerRegistryDeployer")

@@ -42,6 +42,8 @@ class BuildPolicyManager {
     private static final String INSECURE = ".insecure";
     private static final String PREFIXES = ".prefixes";
     public static final String STORE_LIST = ".store-list";
+    public static final String SKIP_TRANSFORM = ".skip-transform";
+    public static final String ORIGIN = ".origin";
     public static final String BUILD_POLICY = "build-policy.";
     public static final String ARTIFACT_DEPLOYMENTS = "artifact-deployments";
 
@@ -80,6 +82,8 @@ class BuildPolicyManager {
 
         for (String policy : buildPolicies) {
             Optional<String> stores = config.getOptionalValue(BUILD_POLICY + policy + STORE_LIST, String.class);
+            boolean skipTransform = config.getOptionalValue(BUILD_POLICY + policy + SKIP_TRANSFORM, Boolean.class)
+                    .orElse(false);
             if (stores.isEmpty()) {
                 Log.warnf("No config for build policy %s, ignoring", policy);
                 continue;
@@ -98,7 +102,7 @@ class BuildPolicyManager {
                 }
             }
             if (!repositories.isEmpty()) {
-                ret.put(policy, new BuildPolicy(repositories));
+                ret.put(policy, new BuildPolicy(repositories, !skipTransform));
             } else {
                 Log.warnf("No configured repositories for build policy %s, ignoring", policy);
             }

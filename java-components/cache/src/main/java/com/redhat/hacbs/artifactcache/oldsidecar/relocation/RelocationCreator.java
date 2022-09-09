@@ -1,8 +1,8 @@
 package com.redhat.hacbs.artifactcache.oldsidecar.relocation;
 
-import com.redhat.hacbs.artifactcache.util.Gav;
-
 import javax.enterprise.context.ApplicationScoped;
+
+import com.redhat.hacbs.artifactcache.util.Gav;
 
 @ApplicationScoped
 public class RelocationCreator {

@@ -33,7 +33,7 @@ public class S3RepositoryClient implements RepositoryClient {
 
     @Override
     public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version,
-            String target, Long buildStartTime) {
+            String target) {
 
         long time = System.currentTimeMillis();
         String fullTarget = group + "/" + artifact + "/" + version + "/" + target;

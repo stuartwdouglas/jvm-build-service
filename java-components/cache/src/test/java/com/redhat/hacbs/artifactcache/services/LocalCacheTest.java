@@ -35,7 +35,7 @@ public class LocalCacheTest {
 
         @Override
         public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version,
-                String target, Long buildStartTime) {
+                String target) {
             return Optional.ofNullable(current);
         }
 
@@ -52,7 +52,7 @@ public class LocalCacheTest {
                 current = new RepositoryClient.RepositoryResult(
                         new ByteArrayInputStream("test".getBytes(StandardCharsets.UTF_8)), 4, Optional.of("wrong sha"),
                         Map.of());
-                localCache.getArtifactFile("default", "test", "test", "1.0", "test.pom", null);
+                localCache.getArtifactFile("default", "test", "test", "1.0", "test.pom", true);
                 Files.walkFileTree(localCache.path, new SimpleFileVisitor<>() {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
@@ -67,7 +67,7 @@ public class LocalCacheTest {
                 current = new RepositoryClient.RepositoryResult(
                         new ByteArrayInputStream("test".getBytes(StandardCharsets.UTF_8)), 4,
                         Optional.of(HashUtil.sha1("test")), Map.of());
-                localCache.getArtifactFile("default", "test", "test", "1.0", "test.pom", null);
+                localCache.getArtifactFile("default", "test", "test", "1.0", "test.pom", true);
                 AtomicReference<Path> cachedFile = new AtomicReference<>();
                 Files.walkFileTree(localCache.path, new SimpleFileVisitor<>() {
                     @Override
@@ -94,7 +94,7 @@ public class LocalCacheTest {
         try {
             LocalCache localCache = new LocalCache(temp,
                     Map.of("default", new BuildPolicy(
-                            List.of(new Repository("test", "http://test.com", RepositoryType.MAVEN2, MOCK_CLIENT)))));
+                            List.of(new Repository("test", "http://test.com", RepositoryType.MAVEN2, MOCK_CLIENT)), false)));
 
             consumer.accept(localCache);
 

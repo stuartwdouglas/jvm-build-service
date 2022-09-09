@@ -11,7 +11,6 @@ public interface RepositoryClient {
     /**
      * Retrieves an artifact related file.
      *
-     *
      * @param group The group
      * @param artifact The artifact
      * @param version The version
@@ -19,7 +18,7 @@ public interface RepositoryClient {
      * @return empty if the file is not present, otherwise the file data
      */
     Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version,
-            String target, Long buildStartTime);
+            String target);
 
     /**
      * Retrieves a metadata file from the repository

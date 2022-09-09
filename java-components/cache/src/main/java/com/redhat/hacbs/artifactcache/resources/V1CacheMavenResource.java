@@ -1,8 +1,6 @@
 package com.redhat.hacbs.artifactcache.resources;
 
-import com.redhat.hacbs.artifactcache.services.LocalCache;
-import io.quarkus.logging.Log;
-import io.smallrye.common.annotation.Blocking;
+import java.io.InputStream;
 
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
@@ -12,9 +10,13 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
-import java.io.InputStream;
 
-@Path("/maven2")
+import com.redhat.hacbs.artifactcache.services.LocalCache;
+
+import io.quarkus.logging.Log;
+import io.smallrye.common.annotation.Blocking;
+
+@Path("/api/v1")
 @Blocking
 public class V1CacheMavenResource {
 
@@ -25,14 +27,13 @@ public class V1CacheMavenResource {
     }
 
     @GET
-    @Path("{group:.*?}/{artifact}/{version}/{target}")
-    public Response get(@DefaultValue("default") @HeaderParam("X-build-policy") String buildPolicy,
-            @HeaderParam("X-build-start") Long buildStartTime,
+    @Path("{policy}/{group:.*?}/{artifact}/{version}/{target}")
+    public Response get(@PathParam("policy") String buildPolicy,
             @PathParam("group") String group,
             @PathParam("artifact") String artifact,
             @PathParam("version") String version, @PathParam("target") String target) throws Exception {
         Log.debugf("Retrieving artifact %s/%s/%s/%s", group, artifact, version, target);
-        var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target, buildStartTime);
+        var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target, true);
         if (result.isPresent()) {
             var builder = Response.ok(result.get().getData());
             if (result.get().getMetadata().containsKey("maven-repo")) {
