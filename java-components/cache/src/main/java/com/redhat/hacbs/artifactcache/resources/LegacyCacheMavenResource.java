@@ -18,11 +18,11 @@ import io.smallrye.common.annotation.Blocking;
 
 @Path("/maven2")
 @Blocking
-public class CacheMavenResource {
+public class LegacyCacheMavenResource {
 
     final LocalCache cache;
 
-    public CacheMavenResource(LocalCache cache) {
+    public LegacyCacheMavenResource(LocalCache cache) {
         this.cache = cache;
     }
 
