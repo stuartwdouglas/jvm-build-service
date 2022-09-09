@@ -1,25 +1,5 @@
 package com.redhat.hacbs.artifactcache.oldsidecar;
 
-import com.redhat.hacbs.artifactcache.deploy.Deployer;
-import com.redhat.hacbs.artifactcache.deploy.DeployerUtil;
-import com.redhat.hacbs.classfile.tracker.ClassFileTracker;
-import com.redhat.hacbs.classfile.tracker.NoCloseInputStream;
-import io.quarkus.logging.Log;
-import io.quarkus.runtime.Startup;
-import io.smallrye.common.annotation.Blocking;
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
-
-import javax.enterprise.context.spi.CreationalContext;
-import javax.enterprise.inject.spi.Bean;
-import javax.enterprise.inject.spi.BeanManager;
-import javax.inject.Singleton;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.core.Response;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.Collections;
@@ -29,6 +9,29 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+
+import javax.enterprise.context.spi.CreationalContext;
+import javax.enterprise.inject.spi.Bean;
+import javax.enterprise.inject.spi.BeanManager;
+import javax.inject.Singleton;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.core.Response;
+
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+
+import com.redhat.hacbs.artifactcache.deploy.Deployer;
+import com.redhat.hacbs.artifactcache.deploy.DeployerUtil;
+import com.redhat.hacbs.classfile.tracker.ClassFileTracker;
+import com.redhat.hacbs.classfile.tracker.NoCloseInputStream;
+
+import io.quarkus.logging.Log;
+import io.quarkus.runtime.Startup;
+import io.smallrye.common.annotation.Blocking;
 
 @Path("/deploy")
 @Blocking
@@ -53,9 +56,9 @@ public class DeployResource {
     Set<String> allowedSources;
 
     public DeployResource(BeanManager beanManager,
-                          @ConfigProperty(name = "deployer", defaultValue = "S3Deployer") String deployer,
-                          @ConfigProperty(name = "ignored-artifacts", defaultValue = "") Optional<Set<String>> doNotDeploy,
-                          @ConfigProperty(name = "allowed-sources", defaultValue = "") Optional<Set<String>> allowedSources) {
+            @ConfigProperty(name = "deployer", defaultValue = "S3Deployer") String deployer,
+            @ConfigProperty(name = "ignored-artifacts", defaultValue = "") Optional<Set<String>> doNotDeploy,
+            @ConfigProperty(name = "allowed-sources", defaultValue = "") Optional<Set<String>> allowedSources) {
         this.beanManager = beanManager;
         this.deployer = getDeployer(deployer);
         this.doNotDeploy = doNotDeploy.orElse(Set.of());
@@ -111,7 +114,7 @@ public class DeployResource {
         Set<String> contaminants = new HashSet<>();
         Map<String, Set<String>> contaminatedPaths = new HashMap<>();
         try (TarArchiveInputStream in = new TarArchiveInputStream(
-            new GzipCompressorInputStream(Files.newInputStream(temp)))) {
+                new GzipCompressorInputStream(Files.newInputStream(temp)))) {
             TarArchiveEntry e;
             while ((e = in.getNextTarEntry()) != null) {
                 if (e.getName().endsWith(".jar")) {
@@ -125,8 +128,8 @@ public class DeployResource {
                                 int index = e.getName().lastIndexOf("/");
                                 if (index != -1) {
                                     contaminatedPaths
-                                        .computeIfAbsent(e.getName().substring(0, index), s -> new HashSet<>())
-                                        .add(i.gav);
+                                            .computeIfAbsent(e.getName().substring(0, index), s -> new HashSet<>())
+                                            .add(i.gav);
                                 } else {
                                     contaminatedPaths.computeIfAbsent("", s -> new HashSet<>()).add(i.gav);
                                 }

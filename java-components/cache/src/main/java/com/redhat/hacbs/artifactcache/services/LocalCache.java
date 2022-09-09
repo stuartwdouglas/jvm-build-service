@@ -56,7 +56,8 @@ public class LocalCache {
         }
     }
 
-    public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version, String target, boolean requireUntransformed) {
+    public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version,
+            String target, boolean requireUntransformed) {
         //TODO: we don't really care about the policy when using standard maven repositories
         String targetFile = group.replaceAll("\\.", File.separator) + File.separator + artifact
                 + File.separator + version + File.separator + target;
