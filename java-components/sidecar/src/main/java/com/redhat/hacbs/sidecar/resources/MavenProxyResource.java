@@ -1,16 +1,16 @@
 package com.redhat.hacbs.sidecar.resources;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Files;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.zip.ZipException;
+import com.redhat.hacbs.sidecar.resources.relocation.Gav;
+import com.redhat.hacbs.sidecar.resources.relocation.RelocationCreator;
+import io.quarkus.logging.Log;
+import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
+import io.smallrye.common.annotation.Blocking;
+import org.apache.http.Header;
+import org.apache.http.HttpHeaders;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import javax.annotation.PreDestroy;
 import javax.inject.Inject;
@@ -20,24 +20,14 @@ import javax.ws.rs.NotFoundException;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.core.Response;
-
-import org.apache.http.Header;
-import org.apache.http.HttpHeaders;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
-
-import com.redhat.hacbs.classfile.tracker.ClassFileTracker;
-import com.redhat.hacbs.classfile.tracker.TrackingData;
-import com.redhat.hacbs.sidecar.resources.relocation.Gav;
-import com.redhat.hacbs.sidecar.resources.relocation.RelocationCreator;
-
-import io.quarkus.logging.Log;
-import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
-import io.smallrye.common.annotation.Blocking;
-import io.vertx.core.AsyncResult;
-import io.vertx.core.Handler;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Path("/maven2")
 @Blocking
@@ -55,8 +45,6 @@ public class MavenProxyResource {
 
     final String cacheUrl;
 
-    final boolean addTrackingDataToArtifacts;
-
     final Map<String, String> computedChecksums = new ConcurrentHashMap<>();
 
     final int retries;
@@ -68,16 +56,14 @@ public class MavenProxyResource {
     final long startupTime;
 
     public MavenProxyResource(
-            @ConfigProperty(name = "build-policy") String buildPolicy,
-            @ConfigProperty(name = "add-tracking-data-to-artifacts", defaultValue = "true") boolean addTrackingDataToArtifacts,
-            @ConfigProperty(name = "retries", defaultValue = "5") int retries,
-            @ConfigProperty(name = "backoff", defaultValue = "2000") int backoff,
-            @ConfigProperty(name = "quarkus.rest-client.cache-service.url") String cacheUrl,
-            GavRelocationConfig gavRelocationConfig) {
+        @ConfigProperty(name = "build-policy") String buildPolicy,
+        @ConfigProperty(name = "retries", defaultValue = "5") int retries,
+        @ConfigProperty(name = "backoff", defaultValue = "2000") int backoff,
+        @ConfigProperty(name = "quarkus.rest-client.cache-service.url") String cacheUrl,
+        GavRelocationConfig gavRelocationConfig) {
 
         remoteClient = HttpClientBuilder.create().disableAutomaticRetries().setMaxConnPerRoute(10).build();
         this.buildPolicy = buildPolicy;
-        this.addTrackingDataToArtifacts = addTrackingDataToArtifacts;
         this.retries = retries;
         this.backoff = backoff;
         this.cacheUrl = cacheUrl;
@@ -103,7 +89,7 @@ public class MavenProxyResource {
     @GET
     @Path("{group:.*?}/{artifact}/{version}/{target}")
     public Response get(@PathParam("group") String group, @PathParam("artifact") String artifact,
-            @PathParam("version") String version, @PathParam("target") String target) throws Exception {
+                        @PathParam("version") String version, @PathParam("target") String target) throws Exception {
 
         if (isRelocation(group, artifact, version)) {
             if (target.endsWith(DOT_POM)) {
@@ -130,7 +116,7 @@ public class MavenProxyResource {
             throw new NotFoundException();
         } else if (response.getStatusLine().getStatusCode() >= 400) {
             Log.errorf("Failed to load %s, response code was %s", httpGet.getURI(),
-                    response.getStatusLine().getStatusCode());
+                response.getStatusLine().getStatusCode());
             throw new RuntimeException("Failed to get artifact");
         } else {
             return response.getEntity().getContent();
@@ -153,7 +139,7 @@ public class MavenProxyResource {
                 }
             }
             HttpGet httpGet = new HttpGet(
-                    cacheUrl + SLASH + MAVEN2 + SLASH + group + SLASH + artifact + SLASH + version + SLASH + target);
+                cacheUrl + SLASH + MAVEN2 + SLASH + group + SLASH + artifact + SLASH + version + SLASH + target);
             httpGet.addHeader(X_BUILD_POLICY, buildPolicy);
             httpGet.addHeader(X_BUILD_START, Long.toString(startupTime));
 
@@ -167,64 +153,13 @@ public class MavenProxyResource {
                 } else {
                     if (response == null)
                         throw new NotFoundException();
-                    Header header = response.getFirstHeader(X_MAVEN_REPO);
-                    String mavenRepoSource;
-                    if (header == null) {
-                        mavenRepoSource = REBUILT;
-                    } else {
-                        mavenRepoSource = header.getValue();
+                    var rb = Response.ok(response.getEntity().getContent());
+                    Header cl = response.getFirstHeader(HttpHeaders.CONTENT_LENGTH);
+                    if (cl != null) {
+                        rb.header(cl.getName(), cl.getValue());
                     }
-                    if (addTrackingDataToArtifacts && target.endsWith(DOT_JAR)) {
-                        var tempInput = Files.createTempFile(TEMP_JAR, DOT_JAR);
-                        var tempBytecodeTrackedJar = Files.createTempFile(TEMP_MODIFIED_JAR, DOT_JAR);
-                        try (OutputStream out = Files.newOutputStream(tempInput); var in = response.getEntity().getContent()) {
-                            byte[] buf = new byte[1024];
-                            int r;
-                            while ((r = in.read(buf)) > 0) {
-                                out.write(buf, 0, r);
-                            }
-                            out.close();
-                            try (var entityOnDisk = Files.newInputStream(tempInput);
-                                    var output = Files.newOutputStream(tempBytecodeTrackedJar)) {
-                                HashingOutputStream hashingOutputStream = new HashingOutputStream(output);
-                                ClassFileTracker.addTrackingDataToJar(entityOnDisk,
-                                        new TrackingData(toGroupId(group) + DOUBLE_POINT + artifact + DOUBLE_POINT + version,
-                                                mavenRepoSource),
-                                        hashingOutputStream);
-                                String key = group + SLASH + artifact + SLASH + version + SLASH + target + DOT_SHA1;
-                                hashingOutputStream.close();
-                                computedChecksums.put(key, hashingOutputStream.hash);
-                                return Response.ok(Files.newInputStream(tempBytecodeTrackedJar))
-                                        .header(HttpHeaders.CONTENT_LENGTH, Files.size(tempBytecodeTrackedJar)).build();
-                            } catch (ZipException e) {
-                                return Response.ok(Files.newInputStream(tempInput))
-                                        .header(HttpHeaders.CONTENT_LENGTH, Files.size(tempInput)).build();
-                            } finally {
-                                try {
-                                    Files.delete(tempInput);
-                                } catch (IOException e) {
-                                    Log.errorf("Failed to delete temp file %s", tempInput);
-                                }
-                                currentVertxRequest.getCurrent().addEndHandler(new Handler<AsyncResult<Void>>() {
-                                    @Override
-                                    public void handle(AsyncResult<Void> event) {
-                                        try {
-                                            Files.delete(tempBytecodeTrackedJar);
-                                        } catch (IOException e) {
-                                            Log.errorf("Failed to delete temp file %s", tempBytecodeTrackedJar);
-                                        }
-                                    }
-                                });
-                            }
-                        }
-                    } else {
-                        var rb = Response.ok(response.getEntity().getContent());
-                        Header cl = response.getFirstHeader(HttpHeaders.CONTENT_LENGTH);
-                        if (cl != null) {
-                            rb.header(cl.getName(), cl.getValue());
-                        }
-                        return rb.build();
-                    }
+                    return rb.build();
+
                 }
             } catch (NotFoundException e) {
                 throw e;
@@ -235,7 +170,7 @@ public class MavenProxyResource {
             currentBackoff += backoff;
             if (i != retries) {
                 Log.warnf("Failed retrieving artifact %s/%s/%s/%s, waiting %s seconds", group, artifact, version, target,
-                        currentBackoff);
+                    currentBackoff);
                 Thread.sleep(currentBackoff);
             }
         }
@@ -285,9 +220,9 @@ public class MavenProxyResource {
 
     private Optional<Map.Entry<Pattern, String>> findFirstMatch(String key) {
         return gavRelocations.entrySet()
-                .stream()
-                .filter(s -> s.getKey().matcher(key).matches())
-                .findFirst();
+            .stream()
+            .filter(s -> s.getKey().matcher(key).matches())
+            .findFirst();
     }
 
     private String toGroupId(String group) {

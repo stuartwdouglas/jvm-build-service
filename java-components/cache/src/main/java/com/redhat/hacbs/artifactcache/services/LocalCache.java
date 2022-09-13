@@ -1,9 +1,22 @@
 package com.redhat.hacbs.artifactcache.services;
 
+import com.redhat.hacbs.artifactcache.services.RepositoryClient.RepositoryResult;
+import com.redhat.hacbs.artifactcache.util.HashingOutputStream;
+import com.redhat.hacbs.classfile.tracker.ClassFileTracker;
+import com.redhat.hacbs.classfile.tracker.TrackingData;
+import io.quarkus.logging.Log;
+import io.quarkus.runtime.Startup;
+import org.apache.http.HttpHeaders;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.resteasy.reactive.ClientWebApplicationException;
+
+import javax.inject.Singleton;
+import javax.ws.rs.core.Response;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -13,16 +26,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
-
-import javax.inject.Singleton;
-
-import org.eclipse.microprofile.config.inject.ConfigProperty;
-import org.jboss.resteasy.reactive.ClientWebApplicationException;
-
-import com.redhat.hacbs.artifactcache.services.RepositoryClient.RepositoryResult;
-
-import io.quarkus.logging.Log;
-import io.quarkus.runtime.Startup;
+import java.util.zip.ZipException;
 
 /**
  * The cache implementation, this acts as a normal client
@@ -31,46 +35,63 @@ import io.quarkus.runtime.Startup;
 @Startup
 public class LocalCache {
 
+    private static final String DOUBLE_POINT = ":";
+    private static final String SLASH = "/";
+    private static final String DOT_SHA1 = ".sha1";
+    private static final String DOT_JAR = ".jar";
+    private static final String TEMP_JAR = "temp-jar";
+    private static final String TEMP_MODIFIED_JAR = "temp-modified-jar";
     public static final String CACHEMISS = ".cachemiss";
     public static final String DOWNLOADS = ".downloads";
+    public static final String ORIGINAL = "original";
+    public static final String TRACKED = "tracked";
     final Path path;
     final Map<String, BuildPolicy> buildPolicies;
+
+    final boolean hasTrackingPolicy;
 
     /**
      * Tracks in progress downloads to prevent concurrency issues
      */
     final ConcurrentMap<String, DownloadingFile> inProgress = new ConcurrentHashMap<>();
 
+
     public LocalCache(@ConfigProperty(name = "cache-path") Path path,
-            Map<String, BuildPolicy> buildPolicies) throws Exception {
+                      Map<String, BuildPolicy> buildPolicies) throws Exception {
         this.path = path;
         Log.infof("Creating cache with path %s", path.toAbsolutePath());
         //TODO: we don't actually use this at the moment
         this.buildPolicies = buildPolicies;
+        boolean tracking = false;
         for (var e : buildPolicies.entrySet()) {
             for (var repository : e.getValue().getRepositories()) {
                 Path repoPath = path.resolve(repository.getName());
                 Files.createDirectories(repoPath);
                 Files.createDirectories(repoPath.resolve(DOWNLOADS));
             }
+            if (e.getValue().isTransformed()) {
+                tracking = true;
+            }
         }
+        hasTrackingPolicy = tracking;
     }
 
     public Optional<RepositoryResult> getArtifactFile(String buildPolicy, String group, String artifact, String version,
-            String target, boolean requireUntransformed) {
+                                                      String target, boolean requireUntransformed) {
         //TODO: we don't really care about the policy when using standard maven repositories
         String targetFile = group.replaceAll("\\.", File.separator) + File.separator + artifact
-                + File.separator + version + File.separator + target;
+            + File.separator + version + File.separator + target;
         return handleFile(buildPolicy, targetFile,
-                (c) -> c.getArtifactFile(buildPolicy, group, artifact, version, target));
+            (c) -> c.getArtifactFile(group  + ":" + artifact + ":" + version,buildPolicy, group, artifact, version, target), requireUntransformed);
     }
 
-    private Optional<RepositoryResult> handleFile(String buildPolicy, String gavBasedTarget,
-            Function<RepositoryClient, Optional<RepositoryResult>> clientInvocation) {
+    private Optional<RepositoryResult> handleFile(String gav, String buildPolicy, String gavBasedTarget,
+                                                  Function<RepositoryClient, Optional<RepositoryResult>> clientInvocation, boolean forceUntransformed) {
         BuildPolicy policy = buildPolicies.get(buildPolicy);
         if (policy == null) {
             return Optional.empty();
         }
+        boolean tracked = !forceUntransformed && policy.isTransformed() && (gavBasedTarget.endsWith(".jar") || gavBasedTarget.endsWith(".jar.sha1"));
         try {
             for (var repo : policy.getRepositories()) {
                 try {
@@ -82,7 +103,9 @@ public class LocalCache {
                         targetFile = gavBasedTarget;
                     }
                     String targetMissingFile = targetFile + CACHEMISS;
-                    String repoTarget = repo.getName() + File.separator + targetFile;
+                    String originalTarget = repo.getName() + File.separator +  ORIGINAL + targetFile;
+                    String transformedTarget = repo.getName() + File.separator +  TRACKED + targetFile;
+                    String repoTarget = (tracked ? transformedTarget : originalTarget) ;
                     var check = inProgress.get(repoTarget);
                     if (check != null) {
                         check.awaitReady();
@@ -103,8 +126,8 @@ public class LocalCache {
                             check.awaitReady();
                         }
                         return Optional.of(
-                                new RepositoryResult(Files.newInputStream(actual), Files.size(actual), Optional.empty(),
-                                        metadata));
+                            new RepositoryResult(Files.newInputStream(actual), Files.size(actual), Optional.empty(),
+                                metadata));
                     }
                     //now we check for the missing file marker
                     //                    String missingFileMarker = repo.getName() + File.separator + targetMissingFile;
@@ -118,14 +141,14 @@ public class LocalCache {
                         //the result may have been a miss, so we need to check the file is there
                         if (Files.exists(actual)) {
                             return Optional.of(new RepositoryResult(Files.newInputStream(actual), Files.size(actual),
-                                    Optional.empty(), metadata));
+                                Optional.empty(), metadata));
                         }
                     } else {
-                        Optional<RepositoryResult> result = newFile.download(clientInvocation, repo.getClient(), actual,
-                                null, path.resolve(repo.getName()).resolve(DOWNLOADS), repo.getType());
+                        Optional<RepositoryResult> result = newFile.download(gav,repo.getName(), clientInvocation, repo.getClient(), path.resolve(originalTarget), path.resolve(transformedTarget),
+                            null, path.resolve(repo.getName()).resolve(DOWNLOADS), repo.getType());
                         if (result.isPresent()) {
                             return Optional.of(new RepositoryResult(result.get().getData(), result.get().getSize(),
-                                    result.get().getExpectedSha(), metadata));
+                                result.get().getExpectedSha(), metadata));
                         }
                     }
                     //}
@@ -141,7 +164,7 @@ public class LocalCache {
 
     public Optional<RepositoryResult> getMetadataFile(String buildPolicy, String group, String target) {
         String targetFile = buildPolicy + File.separator + group.replaceAll("\\.", File.separator) + File.separator + target;
-        return handleFile(buildPolicy, targetFile, (c) -> c.getMetadataFile(buildPolicy, group, target));
+        return handleFile(group, buildPolicy, targetFile, (c) -> c.getMetadataFile(buildPolicy, group, target), true);
     }
 
     /**
@@ -168,69 +191,80 @@ public class LocalCache {
             }
         }
 
-        Optional<RepositoryResult> download(Function<RepositoryClient, Optional<RepositoryResult>> clientInvocation,
-                RepositoryClient repositoryClient,
-                Path downloadTarget,
-                Path missingFileMarker,
-                Path downloadTempDir,
-                RepositoryType repositoryType) {
+        void download(String name, String gav, Function<RepositoryClient, Optional<RepositoryResult>> clientInvocation,
+                                            RepositoryClient repositoryClient,
+                                            Path originalTarget,
+                                            Path transformedTarget,
+                                            Path missingFileMarker,
+                                            Path downloadTempDir,
+                                            RepositoryType repositoryType) {
             try {
                 Optional<RepositoryResult> result = clientInvocation.apply(repositoryClient);
-                if (!repositoryType.shouldIgnoreLocalCache()) {
-                    if (result.isPresent()) {
-                        MessageDigest md = MessageDigest.getInstance("SHA-1");
-                        Path tempFile = Files.createTempFile(downloadTempDir, "download", ".part");
-                        InputStream in = result.get().getData();
-                        try (OutputStream out = Files.newOutputStream(tempFile)) {
-                            byte[] buffer = new byte[1024];
-                            int r;
-                            while ((r = in.read(buffer)) > 0) {
-                                out.write(buffer, 0, r);
-                                md.update(buffer, 0, r);
-                            }
-                        } finally {
-                            try {
-                                in.close();
-                            } catch (IOException e) {
-                                Log.errorf(e, "Failed to close HTTP stream");
-                            }
+                if (result.isPresent()) {
+                    MessageDigest md = MessageDigest.getInstance("SHA-1");
+                    Path tempFile = Files.createTempFile(downloadTempDir, "download", ".part");
+                    InputStream in = result.get().getData();
+                    try (OutputStream out = Files.newOutputStream(tempFile)) {
+                        byte[] buffer = new byte[1024];
+                        int r;
+                        while ((r = in.read(buffer)) > 0) {
+                            out.write(buffer, 0, r);
+                            md.update(buffer, 0, r);
                         }
-                        if (result.get().getExpectedSha().isPresent()) {
-                            byte[] digest = md.digest();
-                            StringBuilder sb = new StringBuilder(40);
-                            for (int i = 0; i < digest.length; ++i) {
-                                sb.append(Integer.toHexString((digest[i] & 0xFF) | 0x100).substring(1, 3));
-                            }
-                            if (!sb.toString().equalsIgnoreCase(result.get().getExpectedSha().get())) {
-                                //TODO: handle this better
-                                Log.error("Filed to cache " + downloadTarget + " from " + repositoryClient.getName()
-                                        + " calculated sha '" + sb.toString()
-                                        + "' did not match expected '" + result.get().getExpectedSha().get() + "'");
-                                return clientInvocation.apply(repositoryClient);
-                            }
+                    } finally {
+                        try {
+                            in.close();
+                        } catch (IOException e) {
+                            Log.errorf(e, "Failed to close HTTP stream");
                         }
-
-                        Files.createDirectories(downloadTarget.getParent());
-                        Files.move(tempFile, downloadTarget, StandardCopyOption.ATOMIC_MOVE);
-                        return Optional.of(new RepositoryResult(Files.newInputStream(downloadTarget), result.get().getSize(),
-                                result.get().getExpectedSha(), result.get().getMetadata()));
-                    } else if (missingFileMarker != null) {
-                        Files.createDirectories(missingFileMarker.getParent());
-                        Files.createFile(missingFileMarker);
-                        return Optional.empty();
                     }
+                    if (result.get().getExpectedSha().isPresent()) {
+                        byte[] digest = md.digest();
+                        StringBuilder sb = new StringBuilder(40);
+                        for (int i = 0; i < digest.length; ++i) {
+                            sb.append(Integer.toHexString((digest[i] & 0xFF) | 0x100).substring(1, 3));
+                        }
+                        if (!sb.toString().equalsIgnoreCase(result.get().getExpectedSha().get())) {
+                            //TODO: handle this better
+                            Log.error("Filed to cache " + originalTarget + " from " + repositoryClient.getName()
+                                + " calculated sha '" + sb.toString()
+                                + "' did not match expected '" + result.get().getExpectedSha().get() + "'");
+                            return clientInvocation.apply(repositoryClient);
+                        }
+                    }
+                    Files.createDirectories( originalTarget.getParent());
+                    Files.move(tempFile, originalTarget, StandardCopyOption.ATOMIC_MOVE);
+                    if (hasTrackingPolicy) {
+                        try (var entityOnDisk = Files.newInputStream(originalTarget);
+                             var output = Files.newOutputStream(transformedTarget)) {
+                            HashingOutputStream hashingOutputStream = new HashingOutputStream(output);
+                            ClassFileTracker.addTrackingDataToJar(entityOnDisk,
+                                new TrackingData(gav,
+                                    name),
+                                hashingOutputStream);
+                            hashingOutputStream.close();
+                            Files.writeString(transformedTarget.getParent().resolve(transformedTarget.getFileName().toString() + ".sha1"), hashingOutputStream.getHash());
+                        } catch (ZipException e) {
+                            Log.errorf(e, "Unable to create tracked jar  %s", transformedTarget);
+                        }
+                    }
+
+                    return Optional.of(new RepositoryResult(Files.newInputStream(), result.get().getSize(),
+                        result.get().getExpectedSha(), result.get().getMetadata()));
+                } else if (missingFileMarker != null) {
+                    Files.createDirectories(missingFileMarker.getParent());
+                    Files.createFile(missingFileMarker);
                     return Optional.empty();
-                } else {
-                    return result;
                 }
+                return Optional.empty();
             } catch (ClientWebApplicationException e) {
                 if (e.getResponse().getStatus() == 404) {
                     return Optional.empty();
                 }
-                Log.errorf(e, "Failed to download artifact %s from %s", downloadTarget, repositoryClient);
+                Log.errorf(e, "Failed to download artifact %s from %s", originalTarget, repositoryClient);
                 return Optional.empty();
             } catch (Exception e) {
-                Log.errorf(e, "Failed to download artifact %s from %s", downloadTarget, repositoryClient);
+                Log.errorf(e, "Failed to download artifact %s from %s", originalTarget, repositoryClient);
                 return Optional.empty();
             } finally {
                 inProgress.remove(key);

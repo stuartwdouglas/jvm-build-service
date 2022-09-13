@@ -33,7 +33,7 @@ public class V1CacheMavenResource {
             @PathParam("artifact") String artifact,
             @PathParam("version") String version, @PathParam("target") String target) throws Exception {
         Log.debugf("Retrieving artifact %s/%s/%s/%s", group, artifact, version, target);
-        var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target, true);
+        var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target, false);
         if (result.isPresent()) {
             var builder = Response.ok(result.get().getData());
             if (result.get().getMetadata().containsKey("maven-repo")) {
@@ -50,7 +50,7 @@ public class V1CacheMavenResource {
     }
 
     @GET
-    @Path("{group:.*?}/maven-metadata.xml{hash:.*?}")
+    @Path("{policy}/{group:.*?}/maven-metadata.xml{hash:.*?}")
     public InputStream get(@DefaultValue("default") @HeaderParam("X-build-policy") String buildPolicy,
             @PathParam("group") String group,
             @PathParam("hash") String hash) throws Exception {
