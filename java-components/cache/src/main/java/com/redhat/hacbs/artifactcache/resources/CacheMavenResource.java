@@ -1,7 +1,5 @@
 package com.redhat.hacbs.artifactcache.resources;
 
-import com.redhat.hacbs.artifactcache.relocation.Gav;
-import com.redhat.hacbs.artifactcache.relocation.RelocationCreator;
 import com.redhat.hacbs.artifactcache.services.ArtifactResult;
 import com.redhat.hacbs.artifactcache.services.CacheFacade;
 import com.redhat.hacbs.resources.util.HashUtil;
@@ -13,6 +11,9 @@ import org.apache.maven.artifact.repository.metadata.Versioning;
 import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader;
 import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Writer;
 import org.apache.maven.artifact.versioning.ComparableVersion;
+import org.apache.maven.model.Model;
+import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
+import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 
 import javax.inject.Singleton;
 import javax.ws.rs.GET;
@@ -21,9 +22,11 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Date;
@@ -83,6 +86,10 @@ public class CacheMavenResource {
     }
 
 
+    /**
+     * These bintray methods are for builds that reference the now shutdown bintray service. They attempt to find a close
+     * version match to a missing artifact so that the build can still proceed.
+     */
     @GET
     @Path("{build-policy}/{commit-time}/{quarkusbug:hacbs-bintray}/{group:.*?}/{artifact}/{version}/{target}") //quarkus bug: https://github.com/quarkusio/quarkus/pull/28442
     public Response bintrayGet(@PathParam("build-policy") String buildPolicy,
@@ -94,9 +101,6 @@ public class CacheMavenResource {
         var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target, true);
         if (result.isPresent()) {
             return createResponse(result);
-        }
-        if (!target.endsWith(".pom")) {
-            throw new NotFoundException();
         }
         ComparableVersion ourVersion = new ComparableVersion(version);
         //not found, look for something close
@@ -130,14 +134,31 @@ public class CacheMavenResource {
         }
         String newVersion = newer != null ? newer.toString() : older.toString();
         String dotGroup= group.replaceAll("/", ".");
-        return Response.ok(RelocationCreator.create(new Gav(dotGroup, artifact, version), new Gav(dotGroup, artifact, newVersion))).build();
-//        if (target.endsWith(".pom") ) {
-//
-//        } else if (target.endsWith(".pom.sha1")) {
-//
-//        } else {
-//            return get(buildPolicy, group, artifact, newVersion, target);
-//        }
+        Log.infof("Substituting version %s for version %s for artifact %s/%s", newVersion, version, group, artifact);
+        target =target.replaceAll(version, newVersion);
+        if (target.endsWith(".pom") ) {
+            return Response.ok(rewritePom(buildPolicy, group, artifact, newVersion, target, version)).build();
+        } else if (target.endsWith(".pom.sha1")) {
+            return Response.ok(HashUtil.sha1(rewritePom(buildPolicy, group, artifact, newVersion, target, version))).build();
+        } else {
+            return get(buildPolicy, group, artifact, newVersion, target);
+        }
+    }
+
+    private byte[] rewritePom(String buildPolicy, String group, String artifact, String version, String target, String rewriteTarget) throws Exception {
+        var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target, true);
+        if (result.isEmpty()) {
+            throw new NotFoundException();
+        }
+        try (var ignored = result.get()) {
+            MavenXpp3Reader reader = new MavenXpp3Reader();
+            Model model = reader.read(new BufferedReader(new InputStreamReader(ignored.getData())));
+            model.setVersion(rewriteTarget);
+            MavenXpp3Writer writer = new MavenXpp3Writer();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            writer.write(out, model);
+            return out.toByteArray();
+        }
     }
 
     private Response createResponse(Optional<ArtifactResult> result) {
