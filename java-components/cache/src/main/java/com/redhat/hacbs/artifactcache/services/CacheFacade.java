@@ -75,9 +75,13 @@ public class CacheFacade {
     public List<ArtifactResult> getMetadataFiles(String buildPolicy, String group, String target) {
         List<ArtifactResult> results = new ArrayList<>();
         for (var i : buildPolicyCaches.get(buildPolicy)) {
-            var res = i.getMetadataFile(group, target);
-            if (res.isPresent()) {
-                results.add(res.get());
+            try {
+                var res = i.getMetadataFile(group, target);
+                if (res.isPresent()) {
+                    results.add(res.get());
+                }
+            } catch (Exception e) {
+                Log.errorf("Failed to get metadata file %s/%s from %s due to %s", group, target, i.repository, e.getMessage());
             }
         }
         return results;

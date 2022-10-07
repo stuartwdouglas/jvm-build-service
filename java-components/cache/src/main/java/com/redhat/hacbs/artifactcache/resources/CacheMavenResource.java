@@ -1,5 +1,26 @@
 package com.redhat.hacbs.artifactcache.resources;
 
+import com.redhat.hacbs.artifactcache.relocation.Gav;
+import com.redhat.hacbs.artifactcache.relocation.RelocationCreator;
+import com.redhat.hacbs.artifactcache.services.ArtifactResult;
+import com.redhat.hacbs.artifactcache.services.CacheFacade;
+import com.redhat.hacbs.resources.util.HashUtil;
+import io.quarkus.logging.Log;
+import io.smallrye.common.annotation.Blocking;
+import org.apache.http.client.utils.DateUtils;
+import org.apache.maven.artifact.repository.metadata.Metadata;
+import org.apache.maven.artifact.repository.metadata.Versioning;
+import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader;
+import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Writer;
+import org.apache.maven.artifact.versioning.ComparableVersion;
+
+import javax.inject.Singleton;
+import javax.ws.rs.GET;
+import javax.ws.rs.NotFoundException;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.core.HttpHeaders;
+import javax.ws.rs.core.Response;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -7,29 +28,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-
-import javax.ws.rs.GET;
-import javax.ws.rs.NotFoundException;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.Response;
-
-import org.apache.http.client.utils.DateUtils;
-import org.apache.maven.artifact.repository.metadata.Metadata;
-import org.apache.maven.artifact.repository.metadata.Versioning;
-import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader;
-import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Writer;
-
-import com.redhat.hacbs.artifactcache.services.ArtifactResult;
-import com.redhat.hacbs.artifactcache.services.CacheFacade;
-import com.redhat.hacbs.resources.util.HashUtil;
-
-import io.quarkus.logging.Log;
-import io.smallrye.common.annotation.Blocking;
+import java.util.Optional;
 
 @Path("/v1/cache/")
 @Blocking
+@Singleton
 public class CacheMavenResource {
 
     final CacheFacade cache;
@@ -41,21 +44,13 @@ public class CacheMavenResource {
     @GET
     @Path("{build-policy}/{commit-time}/{group:.*?}/{artifact}/{version}/{target}")
     public Response get(@PathParam("build-policy") String buildPolicy,
-            @PathParam("group") String group,
-            @PathParam("artifact") String artifact,
-            @PathParam("version") String version, @PathParam("target") String target) throws Exception {
+                        @PathParam("group") String group,
+                        @PathParam("artifact") String artifact,
+                        @PathParam("version") String version, @PathParam("target") String target) throws Exception {
         Log.debugf("Retrieving artifact %s/%s/%s/%s", group, artifact, version, target);
         var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target, true);
         if (result.isPresent()) {
-            var builder = Response.ok(result.get().getData());
-            if (result.get().getMetadata().containsKey("maven-repo")) {
-                builder.header("X-maven-repo", result.get().getMetadata().get("maven-repo"))
-                        .build();
-            }
-            if (result.get().getSize() > 0) {
-                builder.header(HttpHeaders.CONTENT_LENGTH, result.get().getSize());
-            }
-            return builder.build();
+            return createResponse(result);
         }
         Log.infof("Failed to get artifact %s/%s/%s/%s", group, artifact, version, target);
         throw new NotFoundException();
@@ -64,40 +59,124 @@ public class CacheMavenResource {
     @GET
     @Path("{build-policy}/{commit-time}/{group:.*?}/maven-metadata.xml{hash:.*?}")
     public InputStream get(@PathParam("build-policy") String buildPolicy,
-            @PathParam("commit-time") long commitTime,
-            @PathParam("group") String group,
-            @PathParam("hash") String hash) throws Exception {
-        Log.debugf("Retrieving file %s/%s", group, "maven-metadata.xml");
-        var result = cache.getMetadataFiles(buildPolicy, group, "maven-metadata.xml" + hash);
-        if (!result.isEmpty()) {
-            boolean sha = hash.equals(".sha1");
-            if ((commitTime > 0 || result.size() > 1) && (hash.equals("") || sha)) {
-                if (sha) {
-                    return filterNewerVersions(buildPolicy,
-                            cache.getMetadataFiles(buildPolicy, group, "maven-metadata.xml"),
-                            new Date(commitTime), group, sha);
-                } else {
-                    return filterNewerVersions(buildPolicy, result, new Date(commitTime), group, sha);
-                }
-            }
-            //just return the first one, and close the others
-            ArtifactResult first = result.get(0);
-            for (var i = 1; i < result.size(); ++i) {
-                try {
-                    result.get(i).close();
-                } catch (Throwable t) {
-                    Log.error("Failed to close resource", t);
-                }
-            }
-            return first.getData();
+                           @PathParam("commit-time") long commitTime,
+                           @PathParam("group") String group,
+                           @PathParam("hash") String hash) throws Exception {
+        if (!hash.isEmpty() && !hash.equals(".sha1")) {
+            Log.infof("Failed retrieving file %s/%s", group, "maven-metadata.xml" + hash);
+            throw new NotFoundException();
         }
-        Log.infof("Failed retrieving file %s/%s", group, "maven-metadata.xml");
-        throw new NotFoundException();
+
+        MetadataXpp3Writer writer = new MetadataXpp3Writer();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        Optional<Metadata> metadata = generateFilteredMetadata(buildPolicy, new Date(commitTime), group);
+        if (metadata.isEmpty()) {
+            Log.debugf("Failed retrieving file %s/%s", group, "maven-metadata.xml");
+            throw new NotFoundException();
+        }
+        writer.write(out, metadata.get());
+        if (!hash.isEmpty()) {
+            return new ByteArrayInputStream(HashUtil.sha1(out.toByteArray()).getBytes(StandardCharsets.UTF_8));
+        } else {
+            return new ByteArrayInputStream(out.toByteArray());
+        }
     }
 
-    private InputStream filterNewerVersions(String buildPolicy, List<ArtifactResult> data, Date commitTime, String group,
-            boolean sha1)
-            throws Exception {
+
+    @GET
+    @Path("{build-policy}/{commit-time}/{quarkusbug:hacbs-bintray}/{group:.*?}/{artifact}/{version}/{target}") //quarkus bug: https://github.com/quarkusio/quarkus/pull/28442
+    public Response bintrayGet(@PathParam("build-policy") String buildPolicy,
+                               @PathParam("commit-time") long commitTime,
+                               @PathParam("group") String group,
+                               @PathParam("artifact") String artifact,
+                               @PathParam("version") String version, @PathParam("target") String target) throws Exception {
+        Log.debugf("Retrieving artifact %s/%s/%s/%s", group, artifact, version, target);
+        var result = cache.getArtifactFile(buildPolicy, group, artifact, version, target, true);
+        if (result.isPresent()) {
+            return createResponse(result);
+        }
+        if (!target.endsWith(".pom")) {
+            throw new NotFoundException();
+        }
+        ComparableVersion ourVersion = new ComparableVersion(version);
+        //not found, look for something close
+        //in this case same major version, prefer newer than older
+        var optionalMetadata = generateFilteredMetadata(buildPolicy, new Date(0), group + "/" + artifact);
+        if (optionalMetadata.isEmpty()) {
+            throw new NotFoundException();
+        }
+        var metadata = optionalMetadata.get();
+        if (metadata.getVersioning() == null ||metadata.getVersioning().getVersions() == null) {
+            throw new NotFoundException();
+
+        }
+
+        ComparableVersion newer = null;
+        ComparableVersion older = null;
+        for (var i : metadata.getVersioning().getVersions()) {
+            ComparableVersion thisVer = new ComparableVersion(i);
+            if (thisVer.compareTo(ourVersion) > 0) {
+                if (newer == null || newer.compareTo(thisVer) > 0) { //if newer is larger than this version is closer to the requested
+                    newer = thisVer;
+                }
+            } else {
+                if (older == null || older.compareTo(thisVer) < 0) { //if older is smaller than this version is closer to the requested
+                    older = thisVer;
+                }
+            }
+        }
+        if (older == null && newer == null) {
+            throw new NotFoundException();
+        }
+        String newVersion = newer != null ? newer.toString() : older.toString();
+        String dotGroup= group.replaceAll("/", ".");
+        return Response.ok(RelocationCreator.create(new Gav(dotGroup, artifact, version), new Gav(dotGroup, artifact, newVersion))).build();
+//        if (target.endsWith(".pom") ) {
+//
+//        } else if (target.endsWith(".pom.sha1")) {
+//
+//        } else {
+//            return get(buildPolicy, group, artifact, newVersion, target);
+//        }
+    }
+
+    private Response createResponse(Optional<ArtifactResult> result) {
+        var builder = Response.ok(result.get().getData());
+        if (result.get().getMetadata().containsKey("maven-repo")) {
+            builder.header("X-maven-repo", result.get().getMetadata().get("maven-repo"))
+                .build();
+        }
+        if (result.get().getSize() > 0) {
+            builder.header(HttpHeaders.CONTENT_LENGTH, result.get().getSize());
+        }
+        return builder.build();
+    }
+
+    @GET
+    @Path("{build-policy}/{commit-time}/hacbs-bintray/{group:.*?}/maven-metadata.xml{hash:.*?}")
+    public InputStream bintrayGet(@PathParam("build-policy") String buildPolicy,
+                                  @PathParam("commit-time") long commitTime,
+                                  @PathParam("group") String group,
+                                  @PathParam("hash") String hash) throws Exception {
+        return get(buildPolicy, commitTime, group, hash);
+    }
+
+    private Optional<Metadata> generateFilteredMetadata(String buildPolicy, Date commitTime, String group)
+        throws Exception {
+        Log.debugf("Retrieving file %s/%s", group, "maven-metadata.xml");
+        var data = cache.getMetadataFiles(buildPolicy, group, "maven-metadata.xml");
+        if (data.isEmpty()) {
+            return Optional.empty();
+        }
+        if (data.size() == 1) {
+            try (var in = data.get(0).getData()) {
+                MetadataXpp3Reader reader = new MetadataXpp3Reader();
+                return Optional.of(reader.read(in));
+            } finally {
+                data.get(0).close();
+            }
+        }
+
         try {
             //group is not really a group
             //depending on if there are plugins or versions
@@ -127,7 +206,7 @@ public class CacheMavenResource {
                         for (String version : model.getVersioning().getVersions()) {
                             if (commitTime.getTime() > 0) {
                                 var result = cache.getArtifactFile(buildPolicy, groupId, artifactId, version,
-                                        artifactId + "-" + version + ".pom", false);
+                                    artifactId + "-" + version + ".pom", false);
                                 if (result.isPresent()) {
                                     var lastModified = result.get().getMetadata().get("last-modified");
                                     if (lastModified != null) {
@@ -157,14 +236,7 @@ public class CacheMavenResource {
                 }
                 firstFile = false;
             }
-            MetadataXpp3Writer writer = new MetadataXpp3Writer();
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            writer.write(out, outputModel);
-            if (sha1) {
-                return new ByteArrayInputStream(HashUtil.sha1(out.toByteArray()).getBytes(StandardCharsets.UTF_8));
-            } else {
-                return new ByteArrayInputStream(out.toByteArray());
-            }
+            return Optional.of(outputModel);
         } finally {
             for (var i : data) {
                 try {
