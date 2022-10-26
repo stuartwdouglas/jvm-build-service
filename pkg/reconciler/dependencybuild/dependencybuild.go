@@ -260,7 +260,7 @@ func (r *ReconcileDependencyBuild) handleStateAnalyzeBuild(ctx context.Context, 
 		//read our builder images from the config
 		var allBuilderImages []BuilderImage
 		var selectedImages []BuilderImage
-		allBuilderImages, err = r.processBuilderImages(ctx, log)
+		allBuilderImages, err = r.processBuilderImages(ctx)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -394,18 +394,11 @@ func sameMajorVersion(v1 string, v2 string) bool {
 	return v2p[0] == v1p[0]
 }
 
-func (r *ReconcileDependencyBuild) processBuilderImages(ctx context.Context, log logr.Logger) ([]BuilderImage, error) {
+func (r *ReconcileDependencyBuild) processBuilderImages(ctx context.Context) ([]BuilderImage, error) {
 	systemConfig := v1alpha1.SystemConfig{}
-	getCtx := ctx
-	cluster, ok := logicalcluster.ClusterFromContext(ctx)
-	if ok {
-		if cluster.String() != util.SystemConfigCluster {
-			getCtx = logicalcluster.WithCluster(ctx, logicalcluster.New(util.SystemConfigCluster))
-		}
-	}
-	err := r.client.Get(getCtx, types.NamespacedName{Name: systemconfig.SystemConfigKey}, &systemConfig)
-	if err != nil {
-		return nil, err
+	err2 := r.getSystemConfig(ctx, &systemConfig)
+	if err2 != nil {
+		return nil, err2
 	}
 	//TODO how important is the order here?  do we want 11,8,17 per the old form at https://github.com/redhat-appstudio/jvm-build-service/blob/b91ec6e1888e43962cba16fcaee94e0c9f64557d/deploy/operator/config/system-config.yaml#L8
 	// the unit tests's imaage verification certainly assumes a order
@@ -421,6 +414,17 @@ func (r *ReconcileDependencyBuild) processBuilderImages(ctx context.Context, log
 		return result[i].Priority > result[j].Priority
 	})
 	return result, nil
+}
+
+func (r *ReconcileDependencyBuild) getSystemConfig(ctx context.Context, systemConfig *v1alpha1.SystemConfig) error {
+	getCtx := ctx
+	cluster, ok := logicalcluster.ClusterFromContext(ctx)
+	if ok {
+		if cluster.String() != util.SystemConfigCluster {
+			getCtx = logicalcluster.WithCluster(ctx, logicalcluster.New(util.SystemConfigCluster))
+		}
+	}
+	return r.client.Get(getCtx, types.NamespacedName{Name: systemconfig.SystemConfigKey}, systemConfig)
 }
 
 func (r *ReconcileDependencyBuild) processBuilderImageTags(tags string) map[string][]string {
@@ -468,6 +472,11 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, log 
 	pr.Name = currentDependencyBuildPipelineName(db)
 	pr.Labels = map[string]string{artifactbuild.DependencyBuildIdLabel: db.Labels[artifactbuild.DependencyBuildIdLabel], artifactbuild.PipelineRunLabel: "", PipelineType: PipelineTypeBuild}
 
+	systemConfig := v1alpha1.SystemConfig{}
+	err2 := r.getSystemConfig(ctx, &systemConfig)
+	if err2 != nil {
+		return reconcile.Result{}, err2
+	}
 	if !db.Status.CurrentBuildRecipe.Maven && !db.Status.CurrentBuildRecipe.Gradle {
 		r.eventRecorder.Eventf(db, v1.EventTypeWarning, "MissingRecipeType", "recipe for DependencyBuild %s:%s neither maven or gradle", db.Namespace, db.Name)
 		return reconcile.Result{}, fmt.Errorf("recipe for DependencyBuild %s:%s neither maven or gradle", db.Namespace, db.Name)
@@ -478,7 +487,7 @@ func (r *ReconcileDependencyBuild) handleStateBuilding(ctx context.Context, log 
 		return reconcile.Result{}, err
 	}
 	pr.Spec.PipelineRef = nil
-	pr.Spec.PipelineSpec, err = createPipelineSpec(db.Status.CurrentBuildRecipe.Maven, db.Status.CommitTime, userConfig, db.Status.CurrentBuildRecipe.PreBuildScript)
+	pr.Spec.PipelineSpec, err = createPipelineSpec(db.Status.CurrentBuildRecipe.Maven, db.Status.CommitTime, userConfig, db.Status.CurrentBuildRecipe.PreBuildScript, &systemConfig)
 	if err != nil {
 		return reconcile.Result{}, err
 	}

@@ -4,6 +4,7 @@ kind: SystemConfig
 metadata:
   name: cluster
 spec:
+  gitCloneImage: gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.21.0
   builders:
     jdk8:
       image: quay.io/redhat-appstudio/hacbs-jdk8-builder:36736fbe217be99cf7abeca04c6ea6f83ba48285

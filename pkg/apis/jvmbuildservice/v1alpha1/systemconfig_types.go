@@ -1,6 +1,9 @@
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 const (
 	JDK8Builder         = "jdk8"
@@ -15,8 +18,25 @@ const (
 type QuotaImpl string
 
 type SystemConfigSpec struct {
-	Builders map[string]JavaVersionInfo `json:"builders,omitempty"`
-	Quota    QuotaImpl                  `json:"quota,omitempty"`
+	Builders       map[string]JavaVersionInfo `json:"builders,omitempty"`
+	Quota          QuotaImpl                  `json:"quota,omitempty"`
+	GitCloneImage  string                     `json:"gitCloneImage,omitempty"`
+	PreBuildTasks  []BuildTaskInfo            `json:"preBuildTasks,omitempty"`
+	PostBuildTasks []BuildTaskInfo            `json:"postBuildTasks,omitempty"`
+}
+
+type BuildTaskInfo struct {
+	Name    string          `json:"name,omitempty"`
+	Params  []v1beta1.Param `json:"params,omitempty"`
+	TaskRef TaskRef         `json:"taskRef,omitempty"`
+	// Workspaces is a list of WorkspaceBindings from volumes to workspaces.
+	// +optional
+	Workspaces []v1beta1.WorkspacePipelineTaskBinding `json:"workspaces,omitempty"`
+}
+
+type TaskRef struct {
+	Bundle string `json:"bundle,omitempty"`
+	Name   string `json:"name,omitempty"`
 }
 
 type JavaVersionInfo struct {

@@ -47,6 +47,7 @@ func setupClientAndReconciler(objs ...runtimeclient.Object) (runtimeclient.Clien
 	sysConfig := v1alpha1.SystemConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: systemconfig.SystemConfigKey},
 		Spec: v1alpha1.SystemConfigSpec{
+			GitCloneImage: "gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.21.0",
 			Builders: map[string]v1alpha1.JavaVersionInfo{
 				v1alpha1.JDK8Builder: {
 					Image: "quay.io/redhat-appstudio/hacbs-jdk8-builder:latest",

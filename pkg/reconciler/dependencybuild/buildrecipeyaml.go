@@ -29,7 +29,7 @@ var mavenBuild string
 //go:embed scripts/gradle-build.sh
 var gradleBuild string
 
-func createPipelineSpec(maven bool, commitTime int64, userConfig *v1alpha12.UserConfig, preBuildString string) (*pipelinev1beta1.PipelineSpec, error) {
+func createPipelineSpec(maven bool, commitTime int64, userConfig *v1alpha12.UserConfig, preBuildString string, systemConfig *v1alpha12.SystemConfig) (*pipelinev1beta1.PipelineSpec, error) {
 	var settings string
 	var build string
 	trueBool := true
@@ -94,28 +94,38 @@ func createPipelineSpec(maven bool, commitTime int64, userConfig *v1alpha12.User
 	if err != nil {
 		return nil, err
 	}
-	buildSetup := pipelinev1beta1.TaskSpec{
+	gitCloneImage := systemConfig.Spec.GitCloneImage
+	if gitCloneImage == "" {
+		gitCloneImage = "gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.21.0" //TODO: remove hard coded fallback
+	}
+
+	//we pass in the same params to every step
+	commonParams := []v1alpha1.ParamSpec{
+		{Name: PipelineBuildId, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelineScmUrl, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelineScmTag, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelineImage, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelineGoals, Type: pipelinev1beta1.ParamTypeArray},
+		{Name: PipelineJavaVersion, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelineToolVersion, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelinePath, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelineEnforceVersion, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelineRequestProcessorImage, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelineIgnoredArtifacts, Type: pipelinev1beta1.ParamTypeString},
+		{Name: PipelineCacheUrl, Type: pipelinev1beta1.ParamTypeString, Default: &pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: "http://jvm-build-workspace-artifact-cache.$(context.pipelineRun.namespace).svc.cluster.local/v1/cache/default/" + strconv.FormatInt(commitTime, 10)}},
+	}
+
+	if !maven {
+		commonParams = append(commonParams, v1alpha1.ParamSpec{Name: PipelineGradleManipulatorArgs, Type: pipelinev1beta1.ParamTypeString, Default: &pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: "-DdependencySource=NONE -DignoreUnresolvableDependencies=true -DpluginRemoval=ALL -DversionModification=false"}})
+	}
+	cloneTask := pipelinev1beta1.TaskSpec{
 		Workspaces: []pipelinev1beta1.WorkspaceDeclaration{{Name: WorkspaceBuildSettings}, {Name: WorkspaceSource}},
-		Params: []v1alpha1.ParamSpec{
-			{Name: PipelineBuildId, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelineScmUrl, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelineScmTag, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelineImage, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelineGoals, Type: pipelinev1beta1.ParamTypeArray},
-			{Name: PipelineJavaVersion, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelineToolVersion, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelinePath, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelineEnforceVersion, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelineRequestProcessorImage, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelineIgnoredArtifacts, Type: pipelinev1beta1.ParamTypeString},
-			{Name: PipelineCacheUrl, Type: pipelinev1beta1.ParamTypeString, Default: &pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: "http://jvm-build-workspace-artifact-cache.$(context.pipelineRun.namespace).svc.cluster.local/v1/cache/default/" + strconv.FormatInt(commitTime, 10)}},
-		},
-		Results: []pipelinev1beta1.TaskResult{{Name: artifactbuild.Contaminants}, {Name: artifactbuild.DeployedResources}},
+		Params:     commonParams,
 		Steps: []pipelinev1beta1.Step{
 			{
 				Container: v1.Container{
 					Name:  "git-clone",
-					Image: "gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.21.0", //TODO: should not be hard coded
+					Image: gitCloneImage,
 					Resources: v1.ResourceRequirements{
 						Requests: v1.ResourceList{"memory": defaultContainerRequestMemory, "cpu": defaultContainerRequestCPU},
 						Limits:   v1.ResourceList{"memory": defaultContainerRequestMemory, "cpu": defaultContainerLimitCPU},
@@ -123,6 +133,13 @@ func createPipelineSpec(maven bool, commitTime int64, userConfig *v1alpha12.User
 					Args: []string{"-path=$(workspaces." + WorkspaceSource + ".path)", "-url=$(params." + PipelineScmUrl + ")", "-revision=$(params." + PipelineScmTag + ")"},
 				},
 			},
+		},
+	}
+	buildSetup := pipelinev1beta1.TaskSpec{
+		Workspaces: []pipelinev1beta1.WorkspaceDeclaration{{Name: WorkspaceBuildSettings}, {Name: WorkspaceSource}},
+		Params:     commonParams,
+		Results:    []pipelinev1beta1.TaskResult{{Name: artifactbuild.Contaminants}, {Name: artifactbuild.DeployedResources}},
+		Steps: []pipelinev1beta1.Step{
 			{
 				Container: v1.Container{
 					Name:            "settings",
@@ -184,23 +201,48 @@ func createPipelineSpec(maven bool, commitTime int64, userConfig *v1alpha12.User
 			},
 		},
 	}
-	if !maven {
-		buildSetup.Params = append(buildSetup.Params, v1alpha1.ParamSpec{Name: PipelineGradleManipulatorArgs, Type: pipelinev1beta1.ParamTypeString, Default: &pipelinev1beta1.ArrayOrString{Type: pipelinev1beta1.ParamTypeString, StringVal: "-DdependencySource=NONE -DignoreUnresolvableDependencies=true -DpluginRemoval=ALL -DversionModification=false"}})
-	}
 
-	ps := &pipelinev1beta1.PipelineSpec{
-		Tasks: []pipelinev1beta1.PipelineTask{
-			{
-				Name: artifactbuild.TaskName,
-				TaskSpec: &pipelinev1beta1.EmbeddedTask{
-					TaskSpec: buildSetup,
-				},
-				Params: []pipelinev1beta1.Param{}, Workspaces: []pipelinev1beta1.WorkspacePipelineTaskBinding{
-					{Name: WorkspaceBuildSettings, Workspace: WorkspaceBuildSettings},
-					{Name: WorkspaceSource, Workspace: "source"},
-				},
+	taskList := []pipelinev1beta1.PipelineTask{
+		{
+			Name: "hacbs-git-clone-step",
+			TaskSpec: &pipelinev1beta1.EmbeddedTask{
+				TaskSpec: cloneTask,
 			},
+			Params: []pipelinev1beta1.Param{}, Workspaces: []pipelinev1beta1.WorkspacePipelineTaskBinding{
+			{Name: WorkspaceBuildSettings, Workspace: WorkspaceBuildSettings},
+			{Name: WorkspaceSource, Workspace: "source"},
 		},
+		},
+	}
+	// pre build tasks should handle things like source code scanning
+	for _, i := range systemConfig.Spec.PreBuildTasks {
+		taskList = append(taskList, pipelinev1beta1.PipelineTask{
+			Name:       i.Name,
+			TaskRef:    &pipelinev1beta1.TaskRef{Name: i.TaskRef.Name, Bundle: i.TaskRef.Bundle},
+			Params:     i.Params,
+			Workspaces: i.Workspaces,
+		})
+	}
+	taskList = append(taskList, pipelinev1beta1.PipelineTask{
+		Name: artifactbuild.TaskName,
+		TaskSpec: &pipelinev1beta1.EmbeddedTask{
+			TaskSpec: buildSetup,
+		},
+		Params: []pipelinev1beta1.Param{},
+		Workspaces: []pipelinev1beta1.WorkspacePipelineTaskBinding{
+			{Name: WorkspaceBuildSettings, Workspace: WorkspaceBuildSettings},
+			{Name: WorkspaceSource, Workspace: "source"},
+		}})
+	for _, i := range systemConfig.Spec.PostBuildTasks {
+		taskList = append(taskList, pipelinev1beta1.PipelineTask{
+			Name:       i.Name,
+			TaskRef:    &pipelinev1beta1.TaskRef{Name: i.TaskRef.Name, Bundle: i.TaskRef.Bundle},
+			Params:     i.Params,
+			Workspaces: i.Workspaces,
+		})
+	}
+	ps := &pipelinev1beta1.PipelineSpec{
+		Tasks:      taskList,
 		Workspaces: []v1alpha1.PipelineWorkspaceDeclaration{{Name: WorkspaceBuildSettings}, {Name: WorkspaceSource}},
 	}
 
@@ -215,9 +257,13 @@ func createPipelineSpec(maven bool, commitTime int64, userConfig *v1alpha12.User
 		} else {
 			value = pipelinev1beta1.ArrayOrString{Type: i.Type, ArrayVal: []string{"$(params." + i.Name + "[*])"}}
 		}
-		ps.Tasks[0].Params = append(ps.Tasks[0].Params, pipelinev1beta1.Param{
-			Name:  i.Name,
-			Value: value})
+		for j := range ps.Tasks {
+			if ps.Tasks[j].TaskSpec != nil {
+				ps.Tasks[j].Params = append(ps.Tasks[j].Params, pipelinev1beta1.Param{
+					Name:  i.Name,
+					Value: value})
+			}
+		}
 	}
 	return ps, nil
 }
