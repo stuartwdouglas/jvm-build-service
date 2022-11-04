@@ -12,6 +12,8 @@ spec:
       value: ./integration-tests/
     - name: revision
       value: 2.13.2.Final
+    - name: additionalArgs
+      value : "-DskipDocs -Dquarkus.build.skip=false"
   workspaces:
     - name: maven-settings
       emptyDir: {}

@@ -12,6 +12,8 @@ spec:
       default: ""
     - name: app-path
       default: "target"
+    - name: additionalArgs
+      default: ""
   results:
     - name: JAVA_COMMUNITY_DEPENDENCIES
       value: $(tasks.maven-run.results.JAVA_COMMUNITY_DEPENDENCIES)
@@ -46,13 +48,8 @@ spec:
           value: "$(params.context)"
         - name: DEPENDENCY_ANALYSER_PATH
           value: "$(params.app-path)"
-        - name: GOALS
-          value:
-            - -DskipTests
-            - clean
-            - package
-            - -Denforcer.skip
-            - -DskipDocs=true
+        - name: ADDITIONAL_ARGS
+          value: "$(params.additionalArgs)"
       workspaces:
         - name: maven-settings
           workspace: maven-settings

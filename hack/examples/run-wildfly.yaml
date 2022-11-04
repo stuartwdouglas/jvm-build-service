@@ -11,7 +11,7 @@ spec:
     - name: app-path
       value: ./ee-dist/target
     - name: revision
-      value: f3c78a3aaca3cf0ba3c25b6983628310d3125aea
+      value: 26.1.1.Final
   workspaces:
     - name: maven-settings
       emptyDir: {}

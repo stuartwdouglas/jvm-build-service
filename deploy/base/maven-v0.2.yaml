@@ -24,7 +24,7 @@ spec:
     - name: MAVEN_IMAGE
       type: string
       description: Maven base image
-      default: registry.access.redhat.com/ubi8/openjdk-17:1.13-1.1653918216
+      default: registry.access.redhat.com/ubi8/openjdk-11:latest
     - name: GOALS
       description: maven goals to run
       type: array
@@ -77,6 +77,9 @@ spec:
       description: >-
         The path to use for dependency analysis.
       default: "target"
+    - name: ADDITIONAL_ARGS
+      type: string
+      default: ""
   results:
     - name: dependencies
       description: The total number of dependencies in the output
@@ -172,7 +175,7 @@ spec:
         # with scripts.  I could not get bash to reconcile with tekton var sub, and "$(param.GOALS[*])" vs.
         # "${params.GOALS[*]}".  Hard coding the params for now and ignoring GOALS until I can talk to Stuart
         # and reconcile the param type here vs. having to use a script to change the permissions for running on OpenShift
-        mvn -B -e -s "$(workspaces.maven-settings.path)/settings.xml" -DskipTests clean package -Denforcer.skip
+        mvn -B -e -s "$(workspaces.maven-settings.path)/settings.xml" -DskipTests clean install -Denforcer.skip $(params.ADDITIONAL_ARGS)
 
     - name: analyse-dependencies
       securityContext:
