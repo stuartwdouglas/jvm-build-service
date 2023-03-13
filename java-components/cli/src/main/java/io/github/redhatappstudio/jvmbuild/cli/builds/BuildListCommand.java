@@ -47,7 +47,6 @@ public class BuildListCommand implements Runnable {
             }
             System.out.print("   ");
             System.out.println(i.getValue().getMetadata().getName());
-
         }
 
     }
