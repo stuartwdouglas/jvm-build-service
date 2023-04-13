@@ -7,7 +7,6 @@ import (
 	// needed for hack/update-codegen.sh
 	_ "k8s.io/code-generator"
 
-	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -39,7 +38,6 @@ func main() {
 		TimeEncoder: zapcore.RFC3339TimeEncoder,
 	}
 	opts.BindFlags(flag.CommandLine)
-	klog.InitFlags(flag.CommandLine)
 
 	flag.Parse()
 

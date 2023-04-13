@@ -47,7 +47,6 @@ func Flush() {
 
 // V is a shim
 func V(level Level) Verbose {
-	fmt.Printf("In V %d \n", level)
 	switch level {
 	case 0:
 		return Verbose(zap.S().Level().Enabled(zapcore.ErrorLevel))
@@ -60,7 +59,6 @@ func V(level Level) Verbose {
 
 // Info is a shim
 func (v Verbose) Info(args ...interface{}) {
-	fmt.Printf("Info in V %v \n", v)
 	if !v {
 		return
 	}
@@ -69,7 +67,6 @@ func (v Verbose) Info(args ...interface{}) {
 
 // Infoln is a shim
 func (v Verbose) Infoln(args ...interface{}) {
-	fmt.Printf("Info in V %v \n", v)
 	if !v {
 		return
 	}
@@ -78,7 +75,6 @@ func (v Verbose) Infoln(args ...interface{}) {
 
 // Infof is a shim
 func (v Verbose) Infof(format string, args ...interface{}) {
-	fmt.Printf("Info in V %v \n", v)
 	if !v {
 		return
 	}
@@ -86,7 +82,6 @@ func (v Verbose) Infof(format string, args ...interface{}) {
 }
 
 func (v Verbose) Enabled() bool {
-	fmt.Printf("Enabled in V %v \n", v)
 	return bool(v)
 }
 

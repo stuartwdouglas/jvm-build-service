@@ -17,7 +17,6 @@ require (
 	k8s.io/cli-runtime v0.24.3
 	k8s.io/client-go v0.25.3
 	k8s.io/code-generator v0.25.2
-	k8s.io/klog/v2 v2.70.2-0.20220707122935-0990e81f1a8f
 	knative.dev/pkg v0.0.0-20221011175852-714b7630a836
 	sigs.k8s.io/controller-runtime v0.12.2
 )
@@ -25,8 +24,11 @@ require (
 require (
 	github.com/CycloneDX/cyclonedx-go v0.7.0
 	github.com/google/go-containerregistry v0.12.0
-	go.uber.org/zap v1.23.0
+	go.uber.org/zap v1.24.0
+	k8s.io/klog/v2 v2.70.2-0.20220707122935-0990e81f1a8f
 )
+
+replace k8s.io/klog/v2 v2.70.2-0.20220707122935-0990e81f1a8f => ./hack/klog
 
 require (
 	contrib.go.opencensus.io/exporter/ocagent v0.7.1-0.20200907061046-05415f1de66d // indirect

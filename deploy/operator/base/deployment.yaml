@@ -21,8 +21,7 @@ spec:
             - containerPort: 8080
               name: http-metrics
           args:
-            - "--v=4"
-            - "--zap-log-level=info"
+            - "--zap-log-level=debug"
           resources:
             requests:
               memory: "512Mi"
