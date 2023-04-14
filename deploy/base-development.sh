@@ -1,22 +1,23 @@
 #!/bin/sh
 
+NAMESPACE=$1
+if [ "$NAMESPACE" = "" ]; then
+    NAMESPACE=test-jvm-namespace
+fi
+
+kubectl create namespace $NAMESPACE
+kubectl create namespace jvm-build-service
+
 kubectl delete --ignore-not-found deployments.apps hacbs-jvm-operator -n jvm-build-service
 # we don't restart the cache and local storage by default
 # for most cases in development this is not necessary, and just slows things
 # down by needing things to be re-cached/rebuilt
 
-function cleanAllArtifacts() {
-     kubectl delete --ignore-not-found namespaces test-jvm-namespace
-}
-
 kubectl delete --ignore-not-found deployments.apps jvm-build-workspace-artifact-cache
-if [ "$1" = "--clean" ]; then
-    cleanAllArtifacts
-fi
+
 
 DIR=`dirname $0`
-kubectl apply -f $DIR/namespace.yaml
-kubectl config set-context --current --namespace=test-jvm-namespace
+kubectl config set-context --current --namespace=$NAMESPACE
 kubectl delete --ignore-not-found secret jvm-build-image-secrets jvm-build-git-secrets
 kubectl create secret generic jvm-build-image-secrets --from-file=.dockerconfigjson=$HOME/.docker/config.json --type=kubernetes.io/dockerconfigjson
 kubectl create secret generic jvm-build-git-secrets --from-literal .git-credentials="
