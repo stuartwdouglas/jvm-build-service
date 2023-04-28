@@ -41,7 +41,7 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
-        <quarkus.platform.version>2.16.4.Final</quarkus.platform.version>
+        <quarkus.platform.version>3.0.1.Final</quarkus.platform.version>
 
         <!-- Plugin Versions-->
         <surefire-plugin.version>3.0.0-M5</surefire-plugin.version>
@@ -51,7 +51,7 @@
         <assertj.version>3.23.1</assertj.version>
         <aws-url-connection-client.version>2.17.95</aws-url-connection-client.version>
         <aws-java-sdk-s3.version>1.12.261</aws-java-sdk-s3.version>
-        <quarkus-jgit.version>1.2.0</quarkus-jgit.version>
+        <quarkus-jgit.version>3.0.0</quarkus-jgit.version>
         <gradle-tooling-api.version>7.5</gradle-tooling-api.version>
         <quarkus-github-api.version>1.302.0</quarkus-github-api.version>
         <cyclonedx-core-java.version>7.1.4</cyclonedx-core-java.version>
