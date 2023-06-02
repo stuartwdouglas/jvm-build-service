@@ -34,6 +34,7 @@ import com.redhat.hacbs.container.analyser.build.gradle.GradleUtils;
 import com.redhat.hacbs.container.analyser.build.maven.MavenDiscoveryTask;
 import com.redhat.hacbs.container.analyser.location.VersionRange;
 import com.redhat.hacbs.recipies.build.BuildRecipeInfo;
+import com.redhat.hacbs.recipies.build.PrimaryBuildRecipeInfo;
 import com.redhat.hacbs.recipies.util.GitCredentials;
 
 import io.quarkus.logging.Log;
@@ -78,11 +79,26 @@ public class LookupBuildInfoCommand implements Runnable {
     public void run() {
         try {
 
-            BuildRecipeInfo buildRecipeInfo = RestClientBuilder.newBuilder().baseUri(new URI(cacheUrl))
+            String scmUrl = this.scmUrl;
+            String buildName = "";
+            int index = scmUrl.lastIndexOf("#");
+            if (index != -1) {
+                buildName = scmUrl.substring(index + 1);
+                scmUrl = scmUrl.substring(0, index);
+            }
+            PrimaryBuildRecipeInfo buildRecipeInfo = RestClientBuilder.newBuilder().baseUri(new URI(cacheUrl))
                     .build(CacheBuildInfoLocator.class).resolveBuildInfo(scmUrl, version);
+            BuildRecipeInfo recipe = buildRecipeInfo;
+            if (!buildName.isEmpty()) {
+                recipe = buildRecipeInfo.getAdditionalBuilds().get(buildName);
+                if (recipe == null) {
+                    throw new RuntimeException("Unknown build name " + buildName + " for " + this.scmUrl
+                            + " please add it to the additionalBuilds section");
+                }
+            }
 
             Log.infof("Checking out %s at tag %s", scmUrl, tag);
-            doBuildAnalysis(scmUrl, tag, context, buildRecipeInfo, privateRepo);
+            doBuildAnalysis(scmUrl, tag, context, recipe, privateRepo);
 
             if (message != null) {
                 Files.createFile(message);

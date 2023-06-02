@@ -8,12 +8,12 @@ import jakarta.ws.rs.core.MediaType;
 
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
-import com.redhat.hacbs.recipies.build.BuildRecipeInfo;
+import com.redhat.hacbs.recipies.build.PrimaryBuildRecipeInfo;
 
 @RegisterRestClient()
 @Path("/v2/recipe-lookup/build-info")
 public interface CacheBuildInfoLocator {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    BuildRecipeInfo resolveBuildInfo(@QueryParam("scmUrl") String scmUrl, @QueryParam("version") String version);
+    PrimaryBuildRecipeInfo resolveBuildInfo(@QueryParam("scmUrl") String scmUrl, @QueryParam("version") String version);
 }

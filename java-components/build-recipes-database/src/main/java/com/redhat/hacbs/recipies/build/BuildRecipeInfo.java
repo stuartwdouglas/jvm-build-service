@@ -3,39 +3,27 @@ package com.redhat.hacbs.recipies.build;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class BuildRecipeInfo {
-
     /**
      * If this is true then the version will be explicitly set before doing the build
      */
     boolean enforceVersion;
     List<String> additionalArgs = new ArrayList<>();
-
     /**
      * Parameters that are used instead of the default build command line
      */
     List<String> alternativeArgs = new ArrayList<>();
-
     /**
      * Additional repositories to use in the rebuild.
      */
     List<String> repositories = new ArrayList<>();
     String toolVersion;
     String javaVersion;
-
     String preBuildScript;
-
     String postBuildScript;
-
     boolean disableSubmodules;
-
     int additionalMemory;
-
     List<AdditionalDownload> additionalDownloads = new ArrayList<>();
-
     boolean runTests;
 
     public List<String> getAdditionalArgs() {

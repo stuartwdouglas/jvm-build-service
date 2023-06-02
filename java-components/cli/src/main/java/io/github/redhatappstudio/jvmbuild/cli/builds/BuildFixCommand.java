@@ -5,7 +5,7 @@ import java.util.Set;
 
 import com.redhat.hacbs.recipies.BuildRecipe;
 import com.redhat.hacbs.recipies.build.AddBuildRecipeRequest;
-import com.redhat.hacbs.recipies.build.BuildRecipeInfo;
+import com.redhat.hacbs.recipies.build.PrimaryBuildRecipeInfo;
 import com.redhat.hacbs.recipies.location.BuildInfoRequest;
 import com.redhat.hacbs.resources.model.v1alpha1.ArtifactBuild;
 import com.redhat.hacbs.resources.model.v1alpha1.DependencyBuild;
@@ -87,11 +87,11 @@ public class BuildFixCommand implements Runnable {
             var existing = groupManager
                     .requestBuildInformation(new BuildInfoRequest(buildSpec.getScm().getScmURL(), buildSpec.getVersion(),
                             Set.of(BuildRecipe.BUILD)));
-            BuildRecipeInfo buildRecipe = null;
+            PrimaryBuildRecipeInfo buildRecipe = null;
             if (existing != null && existing.getData().containsKey(BuildRecipe.BUILD)) {
                 buildRecipe = BuildRecipe.BUILD.getHandler().parse(existing.getData().get(BuildRecipe.BUILD));
             } else {
-                buildRecipe = new BuildRecipeInfo();
+                buildRecipe = new PrimaryBuildRecipeInfo();
             }
             buildRecipe.setEnforceVersion(enforceVersion);
             recipeLayoutManager.writeBuildData(new AddBuildRecipeRequest<>(BuildRecipe.BUILD, buildRecipe,

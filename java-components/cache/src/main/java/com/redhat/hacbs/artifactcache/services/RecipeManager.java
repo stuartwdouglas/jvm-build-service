@@ -19,7 +19,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import com.redhat.hacbs.recipies.BuildRecipe;
-import com.redhat.hacbs.recipies.build.BuildRecipeInfo;
+import com.redhat.hacbs.recipies.build.PrimaryBuildRecipeInfo;
 import com.redhat.hacbs.recipies.location.BuildInfoRequest;
 import com.redhat.hacbs.recipies.location.RecipeDirectory;
 import com.redhat.hacbs.recipies.location.RecipeGroupManager;
@@ -91,7 +91,7 @@ public class RecipeManager {
         return ret;
     }
 
-    public BuildRecipeInfo resolveBuildInfo(String scmUrl, String version) throws IOException {
+    public PrimaryBuildRecipeInfo resolveBuildInfo(String scmUrl, String version) throws IOException {
 
         var ret = recipeGroupManager.requestBuildInformation(new BuildInfoRequest(scmUrl, version, Set.of(BuildRecipe.BUILD)));
         Path path = ret.getData().get(BuildRecipe.BUILD);
