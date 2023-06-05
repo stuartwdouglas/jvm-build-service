@@ -194,11 +194,18 @@ func createPipelineSpec(tool string, commitTime int64, jbsConfig *v1alpha12.JBSC
 	if err != nil {
 		return nil, "", err
 	}
-	buildContainerRequestCPU, err := resource.ParseQuantity(settingOrDefault(jbsConfig.Spec.BuildSettings.BuildRequestCPU, "300m"))
-	if err != nil {
-		return nil, "", err
-	}
+	buildah := `
+chown root:root /var/lib/containers
 
+      sed -i 's/^\s*short-name-mode\s*=\s*.*/short-name-mode = "disabled"/' /etc/containers/registries.conf
+
+      # Setting new namespace to run buildah - 2^32-2
+      echo 'root:1:4294967294' | tee -a /etc/subuid >> /etc/subgid
+
+      unshare -Uf -r --map-users 1,1,65536 --map-groups 1,1,65536 -- buildah build \
+        --no-cache \
+        --ulimit nofile=4096:4096 \
+        -f "Dockerfile" -t test .`
 	buildContainerRequestMemory := defaultBuildContainerRequestMemory
 	if additionalMemory > 0 {
 		additional := resource.MustParse(fmt.Sprintf("%dMi", additionalMemory))
@@ -222,12 +229,7 @@ func createPipelineSpec(tool string, commitTime int64, jbsConfig *v1alpha12.JBSC
 	if jbsConfig.Spec.CacheSettings.DisableTLS {
 		cacheUrl = "http://jvm-build-workspace-artifact-cache." + jbsConfig.Namespace + ".svc.cluster.local/v2/cache/rebuild"
 	}
-	pullPolicy := v1.PullIfNotPresent
-	if strings.HasPrefix(buildRequestProcessorImage, "quay.io/minikube") {
-		pullPolicy = v1.PullNever
-	} else if strings.HasSuffix(buildRequestProcessorImage, ":dev") {
-		pullPolicy = v1.PullAlways
-	}
+
 	buildSetup := pipelinev1beta1.TaskSpec{
 		Workspaces: []pipelinev1beta1.WorkspaceDeclaration{{Name: WorkspaceBuildSettings}, {Name: WorkspaceSource}, {Name: WorkspaceTls}},
 		Params: []pipelinev1beta1.ParamSpec{
@@ -264,58 +266,17 @@ func createPipelineSpec(tool string, commitTime int64, jbsConfig *v1alpha12.JBSC
 					Requests: v1.ResourceList{"memory": defaultContainerRequestMemory, "cpu": defaultContainerRequestCPU},
 					Limits:   v1.ResourceList{"memory": defaultContainerRequestMemory, "cpu": defaultContainerLimitCPU},
 				},
-				Script: gitArgs + "\n" + settings,
+				Args: []string{"$(params.GOALS[*])"},
+				Script: createDockerFileComponents(gitArgs+"\n"+settings, "git", "", "$(params."+PipelineParamImage+")", true) + "\n" +
+					createDockerFileComponents(artifactbuild.InstallKeystoreIntoBuildRequestProcessor(preprocessorArgs), "req-processor", "git", "$(params."+PipelineParamRequestProcessorImage+")", false) + "\n" +
+					createDockerFileComponents(build, "build", "req-processor", "$(params."+PipelineParamImage+")", true) + "\n" +
+					createDockerFileComponents(artifactbuild.InstallKeystoreIntoBuildRequestProcessor(verifyBuiltArtifactsArgs, deployArgs), "deploy", "build", "$(params."+PipelineParamRequestProcessorImage+")", false) + "\n" +
+					"\n" + buildah + "\n",
+
 				Env: []v1.EnvVar{
 					{Name: PipelineParamCacheUrl, Value: "$(params." + PipelineParamCacheUrl + ")"},
 					{Name: "GIT_TOKEN", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{LocalObjectReference: v1.LocalObjectReference{Name: v1alpha12.GitSecretName}, Key: v1alpha12.GitSecretTokenKey, Optional: &trueBool}}},
 				},
-			},
-			{
-				Name:            "preprocessor",
-				Image:           "$(params." + PipelineParamRequestProcessorImage + ")",
-				ImagePullPolicy: pullPolicy,
-				SecurityContext: &v1.SecurityContext{RunAsUser: &zero},
-				Env: []v1.EnvVar{
-					{Name: PipelineParamCacheUrl, Value: "$(params." + PipelineParamCacheUrl + ")"},
-				},
-				Resources: v1.ResourceRequirements{
-					//TODO: make configurable
-					Requests: v1.ResourceList{"memory": defaultContainerRequestMemory, "cpu": defaultContainerRequestCPU},
-					Limits:   v1.ResourceList{"memory": defaultContainerRequestMemory, "cpu": defaultContainerLimitCPU},
-				},
-				Script: artifactbuild.InstallKeystoreIntoBuildRequestProcessor(preprocessorArgs),
-			},
-			{
-				Name:            "build",
-				Image:           "$(params." + PipelineParamImage + ")",
-				WorkingDir:      "$(workspaces." + WorkspaceSource + ".path)/workspace",
-				SecurityContext: &v1.SecurityContext{RunAsUser: &zero},
-				Env: []v1.EnvVar{
-					{Name: PipelineParamCacheUrl, Value: "$(params." + PipelineParamCacheUrl + ")"},
-					{Name: PipelineParamEnforceVersion, Value: "$(params." + PipelineParamEnforceVersion + ")"},
-				},
-				Resources: v1.ResourceRequirements{
-					//TODO: limits management and configuration
-					Requests: v1.ResourceList{"memory": buildContainerRequestMemory, "cpu": buildContainerRequestCPU},
-				},
-				Args: []string{"$(params.GOALS[*])"},
-
-				Script: build,
-			},
-			{
-				Name:            "verify-deploy-and-check-for-contaminates",
-				Image:           "$(params." + PipelineParamRequestProcessorImage + ")",
-				ImagePullPolicy: pullPolicy,
-				SecurityContext: &v1.SecurityContext{RunAsUser: &zero},
-				Env: []v1.EnvVar{
-					{Name: "REGISTRY_TOKEN", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{LocalObjectReference: v1.LocalObjectReference{Name: v1alpha12.ImageSecretName}, Key: v1alpha12.ImageSecretTokenKey, Optional: &trueBool}}},
-				},
-				Resources: v1.ResourceRequirements{
-					//TODO: make configurable
-					Requests: v1.ResourceList{"memory": defaultBuildContainerRequestMemory, "cpu": defaultContainerRequestCPU},
-					Limits:   v1.ResourceList{"memory": defaultBuildContainerRequestMemory, "cpu": defaultContainerLimitCPU},
-				},
-				Script: artifactbuild.InstallKeystoreIntoBuildRequestProcessor(verifyBuiltArtifactsArgs, deployArgs),
 			},
 		},
 	}
@@ -417,4 +378,32 @@ func settingOrDefault(setting, def string) string {
 		return def
 	}
 	return setting
+}
+
+func createDockerFileComponents(script string, layername string, prevlayer string, image string, imageHasBase64 bool) string {
+	//write the from section and copy what is required
+	ret := fmt.Sprintf("cat >>Dockerfile <<RHTAPEOFMARKERFORHEREDOC\n"+
+		"FROM %s as %s\n", image, layername)
+	if prevlayer != "" {
+		ret += fmt.Sprintf("COPY --from=%s  $(workspaces.source.path) $(workspaces.source.path)\n", prevlayer)
+		ret += fmt.Sprintf("COPY --from=%s  $(workspaces.settings.path) $(workspaces.settings.path)\n", prevlayer)
+		ret += fmt.Sprintf("COPY --from=%s  $(workspaces.tls.path) $(workspaces.tls.path)\n", prevlayer)
+	}
+	ret += "\nRHTAPEOFMARKERFORHEREDOC\n"
+	//now write the script to the dockerfile
+	//we can't just copy it, as the format does not allow that
+	//we can't just base64 encode it in the golang, as that would break parameter substitution
+	//instead we need to base64 it in the step itself
+	ret += "echo -n 'RUN echo ' >>Dockerfile\n"
+	if imageHasBase64 {
+		ret += fmt.Sprintf("cat <<RHTAPEOFMARKERFORHEREDOC | base64 >>Dockerfile \n")
+		ret += script
+		ret += "\nRHTAPEOFMARKERFORHEREDOC\n"
+	} else {
+		ret += "echo -n " + base64.StdEncoding.EncodeToString([]byte(script)) + "\n" //no param substitution in this case
+	}
+	ret += "echo -n ' | base64 -d >script.sh' >>Dockerfile\n"
+	ret += "echo RUN script.sh >>Dockerfile\n"
+	ret += "cat Dockerfile \n"
+	return ret
 }
