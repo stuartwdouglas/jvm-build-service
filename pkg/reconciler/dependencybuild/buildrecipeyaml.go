@@ -195,14 +195,15 @@ func createPipelineSpec(tool string, commitTime int64, jbsConfig *v1alpha12.JBSC
 		return nil, "", err
 	}
 	buildah := `
-chown root:root /var/lib/containers
+
+       chown root:root /var/lib/containers
 
       sed -i 's/^\s*short-name-mode\s*=\s*.*/short-name-mode = "disabled"/' /etc/containers/registries.conf
 
       # Setting new namespace to run buildah - 2^32-2
       echo 'root:1:4294967294' | tee -a /etc/subuid >> /etc/subgid
 
-      unshare -Uf -r --map-users 1,1,65536 --map-groups 1,1,65536 -- buildah build \
+      unshare -Uf --keep-caps -r --map-users 1,1,65536 --map-groups 1,1,65536  -- buildah build --storage-driver=vfs \
         --no-cache \
         --ulimit nofile=4096:4096 \
         -f "Dockerfile" -t test .`
@@ -260,13 +261,14 @@ chown root:root /var/lib/containers
 		Steps: []pipelinev1beta1.Step{
 			{
 				Name:            "git-clone-and-settings",
-				Image:           "$(params." + PipelineParamImage + ")",
-				SecurityContext: &v1.SecurityContext{RunAsUser: &zero},
+				Image:           "quay.io/redhat-appstudio/buildah:v1.28",
+				SecurityContext: &v1.SecurityContext{RunAsUser: &zero, Capabilities: &v1.Capabilities{Add: []v1.Capability{"SETFCAP"}}},
 				Resources: v1.ResourceRequirements{
 					Requests: v1.ResourceList{"memory": defaultContainerRequestMemory, "cpu": defaultContainerRequestCPU},
 					Limits:   v1.ResourceList{"memory": defaultContainerRequestMemory, "cpu": defaultContainerLimitCPU},
 				},
-				Args: []string{"$(params.GOALS[*])"},
+				WorkingDir: "$(workspaces.source.path)",
+				Args:       []string{"$(params.GOALS[*])"},
 				Script: createDockerFileComponents(gitArgs+"\n"+settings, "git", "", "$(params."+PipelineParamImage+")", true) + "\n" +
 					createDockerFileComponents(artifactbuild.InstallKeystoreIntoBuildRequestProcessor(preprocessorArgs), "req-processor", "git", "$(params."+PipelineParamRequestProcessorImage+")", false) + "\n" +
 					createDockerFileComponents(build, "build", "req-processor", "$(params."+PipelineParamImage+")", true) + "\n" +
@@ -386,8 +388,12 @@ func createDockerFileComponents(script string, layername string, prevlayer strin
 		"FROM %s as %s\n", image, layername)
 	if prevlayer != "" {
 		ret += fmt.Sprintf("COPY --from=%s  $(workspaces.source.path) $(workspaces.source.path)\n", prevlayer)
-		ret += fmt.Sprintf("COPY --from=%s  $(workspaces.settings.path) $(workspaces.settings.path)\n", prevlayer)
+		ret += fmt.Sprintf("COPY --from=%s  $(workspaces.build-settings.path) $(workspaces.build-settings.path)\n", prevlayer)
 		ret += fmt.Sprintf("COPY --from=%s  $(workspaces.tls.path) $(workspaces.tls.path)\n", prevlayer)
+	} else {
+		ret += fmt.Sprintf("COPY $(workspaces.source.path) $(workspaces.source.path)\n", prevlayer)
+		ret += fmt.Sprintf("COPY $(workspaces.build-settings.path) $(workspaces.build-settings.path)\n", prevlayer)
+		ret += fmt.Sprintf("COPY $(workspaces.tls.path) $(workspaces.tls.path)\n", prevlayer)
 	}
 	ret += "\nRHTAPEOFMARKERFORHEREDOC\n"
 	//now write the script to the dockerfile
@@ -396,14 +402,13 @@ func createDockerFileComponents(script string, layername string, prevlayer strin
 	//instead we need to base64 it in the step itself
 	ret += "echo -n 'RUN echo ' >>Dockerfile\n"
 	if imageHasBase64 {
-		ret += fmt.Sprintf("cat <<RHTAPEOFMARKERFORHEREDOC | base64 >>Dockerfile \n")
+		ret += fmt.Sprintf("cat <<RHTAPEOFMARKERFORHEREDOC | base64 -w 0 >>Dockerfile \n")
 		ret += script
 		ret += "\nRHTAPEOFMARKERFORHEREDOC\n"
 	} else {
 		ret += "echo -n " + base64.StdEncoding.EncodeToString([]byte(script)) + "\n" //no param substitution in this case
 	}
-	ret += "echo -n ' | base64 -d >script.sh' >>Dockerfile\n"
-	ret += "echo RUN script.sh >>Dockerfile\n"
-	ret += "cat Dockerfile \n"
+	ret += "echo ' | base64 -d >script.sh' >>Dockerfile\n"
+	ret += "echo 'RUN chmod +x ./script.sh && ./script.sh' >>Dockerfile\n"
 	return ret
 }
