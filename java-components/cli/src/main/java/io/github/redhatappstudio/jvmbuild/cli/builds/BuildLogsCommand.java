@@ -16,7 +16,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
@@ -170,18 +169,29 @@ public class BuildLogsCommand implements Runnable {
                         .split("/");
                 System.out.println("Log information: " + Arrays.toString(split));
 
-                String log = logsApi.getLogByUid(split[0], UUID.fromString(split[2]), UUID.fromString(split[4]));
+                var req = client.getHttpClient().newHttpRequestBuilder()
+                        .uri(URI.create("https://" + host + ":" + defaultPort + restPath + "/v1alpha2/parents/" + split[0]
+                                + "/results/" + split[2] + "/logs/" + split[4]))
+                        .build();
+                try {
+                    String log = client.getHttpClient().sendAsync(req, String.class).get().bodyString();
 
-                // When the log is too big it returns a sequence of JSON documents. While a string
-                // split "((?<=[}][}]))" around the separator would work a JsonParser can parse and
-                // tokenize the string itself.
-                try (JsonParser jp = JSON_FACTORY.createParser(log)) {
-                    Iterator<Result> value = MAPPER.readValues(jp, Result.class);
-                    value.forEachRemaining((r) ->
-                    // According to the spec its meant to be a Base64 encoded chunk. However, it appears
-                    // to be implicitly decoded
-                    allLog.append(new String(r.result.getData(), StandardCharsets.UTF_8)));
-                } catch (IOException e) {
+                    //String log = logsApi.getLogByUid(split[0], UUID.fromString(split[2]), UUID.fromString(split[4]));
+
+                    // When the log is too big it returns a sequence of JSON documents. While a string
+                    // split "((?<=[}][}]))" around the separator would work a JsonParser can parse and
+                    // tokenize the string itself.
+                    try (JsonParser jp = JSON_FACTORY
+                            .createParser(client.getHttpClient().sendAsync(req, String.class).get().bodyString())) {
+                        Iterator<Result> value = MAPPER.readValues(jp, Result.class);
+                        value.forEachRemaining((r) ->
+                        // According to the spec its meant to be a Base64 encoded chunk. However, it appears
+                        // to be implicitly decoded
+                        allLog.append(new String(r.result.getData(), StandardCharsets.UTF_8)));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
             }
