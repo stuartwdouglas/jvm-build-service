@@ -580,7 +580,14 @@ func (r *ReconcilerJBSConfig) cacheDeployment(ctx context.Context, log logr.Logg
 		// work around for developer mode while we are hard coding the spec in the controller
 		cache.Spec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullAlways
 	}
-
+	allowedImage, err := util.GetImageName(ctx, r.client, log, "build-request-processor", "JVM_BUILD_SERVICE_REQPROCESSOR_IMAGE")
+	if err != nil {
+		return err
+	}
+	if index := strings.Index(allowedImage, ":"); index > 0 {
+		allowedImage = allowedImage[0:index]
+	}
+	cache = setEnvVarValue(allowedImage, "ALLOWED_RESULTS_UPDATER_IMAGE", cache)
 	if create {
 		if err := controllerutil.SetOwnerReference(jbsConfig, cache, r.scheme); err != nil {
 			return err

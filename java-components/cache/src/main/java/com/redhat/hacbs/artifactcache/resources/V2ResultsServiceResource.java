@@ -32,6 +32,8 @@ public class V2ResultsServiceResource {
 
     final KubernetesClient kubernetesClient;
 
+    final String allowedImage;
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     final int retries;
 
@@ -40,9 +42,11 @@ public class V2ResultsServiceResource {
     }
 
     public V2ResultsServiceResource(KubernetesClient kubernetesClient,
-            @ConfigProperty(name = "kube.retries", defaultValue = "5") int retries) {
+            @ConfigProperty(name = "kube.retries", defaultValue = "5") int retries,
+            @ConfigProperty(name = "allowed.results.updater.image", defaultValue = "error-allowed-image-not-defined") String allowedImage) {
         this.kubernetesClient = kubernetesClient;
         this.retries = retries;
+        this.allowedImage = allowedImage;
     }
 
     @POST
@@ -58,6 +62,20 @@ public class V2ResultsServiceResource {
             try {
                 Resource<TaskRun> taskRunResource = kubernetesClient.resources(TaskRun.class)
                         .withName(taskRun);
+                boolean found = false;
+                //we will only update a task run that contains the build request processor
+                for (var step : taskRunResource.get().getSpec().getStepSpecs()) {
+                    Object image = step.getAdditionalProperties().get("image");
+                    if (image instanceof String) {
+                        if (((String) image).contains(allowedImage)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found) {
+                    throw new RuntimeException("cannot update task that does not contain build-request-processor");
+                }
                 taskRunResource.editStatus(new UnaryOperator<TaskRun>() {
                     @Override
                     public TaskRun apply(TaskRun taskRun) {
