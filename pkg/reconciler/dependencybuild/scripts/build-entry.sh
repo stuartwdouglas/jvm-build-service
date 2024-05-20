@@ -42,6 +42,9 @@ export HOME=/root
 
 mkdir -p $(workspaces.source.path)/logs $(workspaces.source.path)/packages $(workspaces.source.path)/build-info
 
+export PROXY_PATH_MAIN_TARGETS=${CACHE_URL}
+/opt/domainproxy-client &
+
 {{INSTALL_PACKAGE_SCRIPT}}
 
 #This is replaced when the task is created by the golang code

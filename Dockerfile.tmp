@@ -1,0 +1,3 @@
+FROM quay.io/redhat-user-workloads/rhtap-build-tenant/jvm-build-service-builder-images/ubi8:d6c417eae5fe32f3207918c6395881843e534a5d
+COPY domainproxy-client /opt/domainproxy-client
+COPY domainproxy-server /opt/domainproxy-server

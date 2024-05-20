@@ -10,7 +10,7 @@ else
       <mirrors>
         <mirror>
           <id>mirror.default</id>
-          <url>${CACHE_URL}</url>
+          <url>http://localhost:8080/main</url>
           <mirrorOf>*</mirrorOf>
         </mirror>
       </mirrors>

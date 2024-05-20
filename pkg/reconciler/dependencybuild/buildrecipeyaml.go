@@ -347,14 +347,14 @@ func createPipelineSpec(log logr.Logger, tool string, commitTime int64, jbsConfi
 				Image:           "$(params." + PreBuildImageDigest + ")",
 				ImagePullPolicy: v1.PullAlways,
 				WorkingDir:      "$(workspaces." + WorkspaceSource + ".path)/workspace",
-				SecurityContext: &v1.SecurityContext{RunAsUser: &zero},
+				SecurityContext: &v1.SecurityContext{RunAsUser: &zero, Capabilities: &v1.Capabilities{Add: []v1.Capability{"SETFCAP"}}},
 				Env:             append(toolEnv, v1.EnvVar{Name: PipelineParamCacheUrl, Value: "$(params." + PipelineParamCacheUrl + ")"}),
 				ComputeResources: v1.ResourceRequirements{
 					Requests: v1.ResourceList{"memory": limits.buildRequestMemory, "cpu": limits.buildRequestCPU},
 					Limits:   v1.ResourceList{"memory": limits.buildRequestMemory, "cpu": limits.buildLimitCPU},
 				},
 				Args:   []string{"$(params.GOALS[*])"},
-				Script: OriginalContentPath + "/build.sh \"$@\"",
+				Script: OriginalContentPath + "/hermetic-build.sh \"$@\"",
 			},
 			{
 				Name:            "verify-deploy-and-check-for-contaminates",
