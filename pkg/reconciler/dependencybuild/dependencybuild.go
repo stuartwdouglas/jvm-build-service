@@ -1205,7 +1205,14 @@ func (r *ReconcileDependencyBuild) createLookupBuildInfoPipeline(ctx context.Con
 									Limits:   v1.ResourceList{"memory": resource.MustParse(memory)},
 								},
 								Env: envVars,
+								VolumeMounts: []v1.VolumeMount{{
+									Name:      "my-config-map",
+									MountPath: "/path",
+								}},
 							},
+						},
+						Volumes: []v1.Volume{
+							{Name: "my-config-map", VolumeSource: v1.VolumeSource{ConfigMap: &v1.ConfigMapVolumeSource{LocalObjectReference: v1.LocalObjectReference{Name: "config-map-name"}}}},
 						},
 					},
 				},
